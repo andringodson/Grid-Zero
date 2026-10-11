@@ -45,7 +45,7 @@ The game is a Progressive Web App (PWA), so once it is installed it works offlin
 ## Scope for the one-month release
 
 - 1 car class and 10 fictional teams (no real team, driver or championship names, so no trademark problems)
-- 1 circuit at launch; a second if time allows
+- 1 circuit at launch (Halden Ring, 4.3 km); a second if time allows
 - Modes: Time Trial with a ghost car, and a Quick Race against AI opponents
 - Lap timing with sector splits and a personal best saved on the device
 - Assists: steering, braking line, automatic gears, traction control
@@ -63,6 +63,29 @@ Online multiplayer, career mode, weather, livery editor and app-store builds.
 | 2 | Oct 18–24 | Engine audio, HUD, lap timing, touch and gamepad controls, quality tiers |
 | 3 | Oct 25–31 | AI opponents, Quick Race, ghost car, menus, settings |
 | 4 | Nov 1–10 | Tuning, mobile performance, PWA offline install, testing on real devices, launch |
+
+## Progress
+
+Updated 2026-10-11, at the end of day 1.
+
+| Item | Status |
+|---|---|
+| Project setup, CI (type check, tests, build on every push) | Done |
+| Halden Ring circuit, kerbs, barriers, scenery | Done |
+| Vehicle physics (tyres, aero, weight transfer, gearbox, assists) | Done, tested against real-world figures |
+| Rendering: sky, lighting, shadows, procedural textures, car model | Done |
+| Keyboard, gamepad and touch controls (drag or tilt steering) | Done |
+| Chase, T-cam and cockpit cameras | Done |
+| Lap timing, sectors, live delta, track limits, saved personal best | Done |
+| HUD and minimap | Done |
+| Synthesised engine, tyre and track audio | Done; needs listening tests on real devices |
+| Menus, pause, settings, ten fictional teams | Done |
+| PWA: manifest, icons, offline service worker | Done; offline mode needs checking on a real device |
+| AI drivers, racing line, racecraft, collisions | Done |
+| Quick Race with start lights, timing tower and results | Done |
+| Ghost car in Time Trial | To do |
+| Performance tuning on real phones | To do |
+| Public deployment | Waiting on a decision: GitHub Pages is free only for public repositories |
 
 ## Working rules
 
