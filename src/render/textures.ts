@@ -108,7 +108,8 @@ export function asphaltTextures(size: number, anisotropy: number): SurfaceTextur
   const rough = rctx.createImageData(size, size);
   for (let i = 0; i < size * size; i++) {
     const stone = rand() < 0.05 ? 0.12 * rand() : 0;
-    const v = 0.2 + broad[i] * 0.06 + fine[i] * 0.07 + stone;
+    // Weathered, sun-bleached aggregate: light enough that the rubbered racing line reads darker against it.
+    const v = 0.26 + broad[i] * 0.06 + fine[i] * 0.07 + stone;
     const g = Math.min(1, v) * 255;
     img.data[i * 4] = g;
     img.data[i * 4 + 1] = g * 1.01;

@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import type { RacingLine } from '../ai/racingLine.ts';
+import { seededRandom } from '../math.ts';
 import type { Track } from '../track/Track.ts';
 import type { QualitySettings } from './quality.ts';
 import { asphaltTextures, barrierTexture, chequerTexture, grassTextures, kerbTexture } from './textures.ts';
@@ -19,12 +21,15 @@ interface RibbonOptions {
   /** Restrict to a range of samples (inclusive start, exclusive end); defaults to the whole loop. */
   range?: [number, number];
   vertical?: boolean;
+  /** Adds a `lateral` attribute holding each vertex's offset from the centreline. */
+  lateral?: boolean;
 }
 
 /** Builds a strip that follows the centreline, e.g. the asphalt between two lateral offsets. */
 function ribbon(track: Track, o: RibbonOptions): THREE.BufferGeometry {
   const positions: number[] = [];
   const uvs: number[] = [];
+  const laterals: number[] = [];
   const indices: number[] = [];
   const [start, end] = o.range ?? [0, track.count];
   const closed = !o.range;
@@ -39,6 +44,7 @@ function ribbon(track: Track, o: RibbonOptions): THREE.BufferGeometry {
     positions.push(track.xs[i] + rx * b, o.yTo?.(i) ?? 0, track.zs[i] + rz * b);
     const v = (k * track.spacing) / o.repeatLength;
     uvs.push(0, v, 1, v);
+    laterals.push(a, b);
   }
   const n = last - start;
   // Faces point up when `from` is left of `to`; flip the winding when the caller gives them the other way round.
@@ -53,12 +59,121 @@ function ribbon(track: Track, o: RibbonOptions): THREE.BufferGeometry {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  if (o.lateral) geo.setAttribute('lateral', new THREE.Float32BufferAttribute(laterals, 1));
   geo.setIndex(indices);
   geo.computeVertexNormals();
   return geo;
 }
 
-export function buildTrackMeshes(track: Track, q: QualitySettings): THREE.Group {
+/** The rubber mask spans this far either side of the centreline, past the asphalt's widest edge. */
+const RUBBER_HALF = 7.5;
+const RUBBER_COLUMNS = 256;
+
+/**
+ * Where tyres have laid rubber down: a mask with one row per track sample and columns across the track. The
+ * darkest rubber follows the racing line in two bands, one per side of the car, widest and heaviest where the
+ * line brakes hard and through the corners; on the straights, where cars spread out, it is faint.
+ */
+function rubberTexture(track: Track, line: RacingLine, anisotropy: number): THREE.DataTexture {
+  const n = track.count;
+  const lookAhead = Math.max(1, Math.round(24 / track.spacing));
+  const raw = new Float32Array(n);
+  const spread = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const v = line.speed[i];
+    const braking = Math.min(1, Math.max(0, v - line.speed[track.wrap(i + lookAhead)]) / 18);
+    const cornering = Math.min(1, Math.abs(line.curvature[i]) * 70);
+    raw[i] = Math.min(1, 0.22 + braking * 0.7 + cornering * 0.35);
+    spread[i] = braking;
+  }
+  // Smooth along the track so the rubber fades in and out over tens of metres, as it does on a real circuit.
+  const radius = Math.round(10 / track.spacing);
+  const intensity = new Float32Array(n);
+  const width = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    let a = 0;
+    let b = 0;
+    for (let d = -radius; d <= radius; d++) {
+      a += raw[track.wrap(i + d)];
+      b += spread[track.wrap(i + d)];
+    }
+    intensity[i] = a / (2 * radius + 1);
+    width[i] = b / (2 * radius + 1);
+  }
+
+  // Fine streaks run with the direction of travel: a fixed random weight per lateral position relative to the line.
+  const rand = seededRandom(61);
+  const streaks = new Float32Array(64);
+  for (let k = 0; k < streaks.length; k++) streaks[k] = 0.7 + rand() * 0.6;
+  // One row per sample, unless that would pass the smallest texture size WebGL 2 guarantees.
+  const rows = Math.min(n, 2048);
+  const data = new Uint8Array(RUBBER_COLUMNS * rows);
+  const g = (x: number, sigma: number) => Math.exp(-(x * x) / (2 * sigma * sigma));
+  for (let r = 0; r < rows; r++) {
+    const i = Math.floor((r * n) / rows);
+    const offset = line.offset[i];
+    // Cars brake on slightly different lines, which smears the rubber wider into the braking zones.
+    const broad = 1.0 + width[i] * 0.8;
+    const tyre = 0.32 + width[i] * 0.2;
+    for (let c = 0; c < RUBBER_COLUMNS; c++) {
+      const lat = ((c + 0.5) / RUBBER_COLUMNS) * 2 * RUBBER_HALF - RUBBER_HALF - offset;
+      const bands = g(lat - 0.8, tyre) + g(lat + 0.8, tyre);
+      const streak = streaks[((Math.floor(lat * 12) % 64) + 64) % 64];
+      const v = intensity[i] * (0.55 * g(lat, broad) + 0.6 * bands * streak);
+      data[r * RUBBER_COLUMNS + c] = Math.min(255, v * 255);
+    }
+  }
+  const tex = new THREE.DataTexture(data, RUBBER_COLUMNS, rows, THREE.RedFormat, THREE.UnsignedByteType);
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  // Seen from the cockpit the mask is squeezed hard along the track; without anisotropy it blurs away.
+  tex.anisotropy = anisotropy;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Darkens the asphalt and polishes it a little wherever the rubber mask says tyres have run. */
+function addRubber(mat: THREE.MeshStandardMaterial, track: Track, line: RacingLine, repeatLength: number, anisotropy: number): void {
+  const rubberMap = rubberTexture(track, line, anisotropy);
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.rubberMap = { value: rubberMap };
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        attribute float lateral;
+        varying vec2 vRubberUv;`,
+      )
+      .replace(
+        '#include <uv_vertex>',
+        `#include <uv_vertex>
+        vRubberUv = vec2((lateral + ${RUBBER_HALF.toFixed(2)}) / ${(2 * RUBBER_HALF).toFixed(2)}, uv.y * ${(repeatLength / track.length).toFixed(8)});`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        uniform sampler2D rubberMap;
+        varying vec2 vRubberUv;`,
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        float rubber = texture2D(rubberMap, vRubberUv).r;
+        diffuseColor.rgb *= 1.0 - 0.72 * rubber;`,
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        roughnessFactor *= 1.0 - 0.16 * rubber;`,
+      );
+  };
+}
+
+export function buildTrackMeshes(track: Track, q: QualitySettings, line?: RacingLine): THREE.Group {
   const group = new THREE.Group();
   group.name = 'track';
   const hw = track.halfWidth;
@@ -74,10 +189,17 @@ export function buildTrackMeshes(track: Track, q: QualitySettings): THREE.Group 
     metalness: 0,
   });
   // The texture spans the full width once and repeats every 14 m along the track.
+  const asphaltRepeat = 14;
   const road = new THREE.Mesh(
-    ribbon(track, { from: (i) => -edgeOf(track, i, -1), to: (i) => edgeOf(track, i, 1), repeatLength: 14 }),
+    ribbon(track, {
+      from: (i) => -edgeOf(track, i, -1),
+      to: (i) => edgeOf(track, i, 1),
+      repeatLength: asphaltRepeat,
+      lateral: true,
+    }),
     asphaltMat,
   );
+  if (line) addRubber(asphaltMat, track, line, asphaltRepeat, q.anisotropy);
   road.receiveShadow = true;
   group.add(road);
 

@@ -87,14 +87,15 @@ export class Game {
 
     this.rig = new CameraRig(o.container.clientWidth / o.container.clientHeight);
     this.env = createEnvironment(this.renderer, this.scene, q);
-    this.scene.add(buildTrackMeshes(o.track, q));
-    this.scene.add(buildScenery(o.track, q));
 
     this.car = new Car(GZ26, o.assists);
     const grid = o.track.gridSlot(0);
     this.car.reset(grid.x, grid.z, grid.heading);
     this.world = new World(o.track, this.car);
     this.field = new Field(o.track, computeRacingLine(o.track, GZ26));
+    // The racing line tells the track where to lay rubber down.
+    this.scene.add(buildTrackMeshes(o.track, q, this.field.line));
+    this.scene.add(buildScenery(o.track, q));
     this.player = this.field.addPlayer(PLAYER_ID, this.car, this.world);
     this.castShadows = q.shadows;
     this.visual = buildCarModel(this.car, o.team.livery, q.shadows);
