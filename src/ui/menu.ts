@@ -1,12 +1,15 @@
 import { formatLapTime } from '../game/LapTimer.ts';
-import type { Settings } from '../game/settings.ts';
+import type { Standing } from '../game/Race.ts';
+import { RACE_LAPS, type Difficulty, type Settings } from '../game/settings.ts';
 import { TEAMS, type Team } from '../game/teams.ts';
 import type { Assists } from '../physics/Car.ts';
 import type { QualityTier } from '../render/quality.ts';
 import type { TouchSteering } from './touch.ts';
 
+export type SessionMode = 'trial' | 'race';
+
 export interface MenuCallbacks {
-  onDrive(): void;
+  onDrive(mode: SessionMode): void;
   onResume(): void;
   onRestart(): void;
   onQuit(): void;
@@ -15,7 +18,7 @@ export interface MenuCallbacks {
   onSettings(next: Settings, changed: keyof Settings): Promise<boolean> | boolean;
 }
 
-type Screen = 'title' | 'pause' | 'settings' | 'none';
+type Screen = 'title' | 'pause' | 'settings' | 'results' | 'none';
 
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 
@@ -60,6 +63,7 @@ export class Menu {
     if (screen === 'title') this.renderTitle();
     else if (screen === 'pause') this.renderPause();
     else if (screen === 'settings') this.renderSettings();
+    else if (screen === 'results') this.renderResults();
     // Keyboard and gamepad players start on the main action.
     this.root.querySelector<HTMLElement>('[data-primary]')?.focus({ preventScroll: true });
   }
@@ -92,7 +96,7 @@ export class Menu {
     panel.className = 'menu-title';
     panel.innerHTML = `
       <h1 class="menu-logo"><span>GRID</span> ZERO</h1>
-      <p class="menu-sub">${this.trackName} · Time Trial</p>
+      <p class="menu-sub">${this.trackName}</p>
       <p class="menu-best">Your best lap <strong>${formatLapTime(this.bestLap)}</strong></p>`;
     this.root.appendChild(panel);
 
@@ -124,7 +128,8 @@ export class Menu {
 
     const actions = document.createElement('div');
     actions.className = 'menu-actions';
-    this.button(actions, 'DRIVE', () => this.cb.onDrive(), 'menu-btn menu-btn-primary', true);
+    this.button(actions, 'QUICK RACE', () => this.cb.onDrive('race'), 'menu-btn menu-btn-primary', true);
+    this.button(actions, 'TIME TRIAL', () => this.cb.onDrive('trial'), 'menu-btn menu-btn-primary');
     this.button(actions, 'SETTINGS', () => {
       this.settingsReturn = 'title';
       this.show('settings');
@@ -177,6 +182,24 @@ export class Menu {
     }
     quality.appendChild(seg);
 
+    // Race.
+    const race = this.section(panel, 'Quick race', 'Opponent pace, and race length in laps.');
+    const diff = document.createElement('div');
+    diff.className = 'menu-seg';
+    for (const d of ['easy', 'medium', 'hard'] as Difficulty[]) {
+      const b = this.button(diff, d.toUpperCase(), () => void apply({ ...this.settings, difficulty: d }, 'difficulty'), 'menu-seg-btn');
+      b.setAttribute('aria-pressed', String(this.settings.difficulty === d));
+    }
+    race.appendChild(diff);
+    const laps = document.createElement('div');
+    laps.className = 'menu-seg';
+    laps.style.marginTop = '6px';
+    for (const n of RACE_LAPS) {
+      const b = this.button(laps, `${n} LAPS`, () => void apply({ ...this.settings, raceLaps: n }, 'raceLaps'), 'menu-seg-btn');
+      b.setAttribute('aria-pressed', String(this.settings.raceLaps === n));
+    }
+    race.appendChild(laps);
+
     // Assists.
     const assists = this.section(panel, 'Driving assists', 'Turn them off for the full challenge.');
     for (const [key, label, hint] of ASSIST_LABELS) {
@@ -222,6 +245,50 @@ export class Menu {
     const actions = document.createElement('div');
     actions.className = 'menu-actions';
     this.button(actions, 'BACK', () => this.show(this.settingsReturn), 'menu-btn menu-btn-primary', true);
+    panel.appendChild(actions);
+    this.root.appendChild(panel);
+  }
+
+  private results: Standing[] = [];
+
+  setResults(results: Standing[]): void {
+    this.results = results;
+  }
+
+  private renderResults(): void {
+    const panel = document.createElement('div');
+    panel.className = 'menu-panel menu-results';
+    const me = this.results.findIndex((r) => r.entrant.isPlayer);
+    const winnerTime = this.results[0]?.finishTime ?? null;
+    panel.innerHTML = `<h2>${me === 0 ? 'YOU WIN!' : `YOU FINISHED P${me + 1}`}</h2>`;
+    const table = document.createElement('table');
+    table.className = 'menu-table';
+    table.innerHTML = '<thead><tr><th>POS</th><th>DRIVER</th><th>TEAM</th><th>TIME</th><th>BEST LAP</th></tr></thead>';
+    const body = document.createElement('tbody');
+    this.results.forEach((r, i) => {
+      const tr = document.createElement('tr');
+      if (r.entrant.isPlayer) tr.className = 'me';
+      const time =
+        i === 0 && r.finishTime !== null
+          ? formatLapTime(r.finishTime)
+          : r.finished && winnerTime !== null
+            ? `+${(r.finishTime! - winnerTime).toFixed(3)}`
+            : 'Running';
+      const cells = [String(i + 1), r.entrant.name, r.entrant.teamName, time, formatLapTime(r.bestLap)];
+      for (const [k, text] of cells.entries()) {
+        const td = document.createElement('td');
+        td.textContent = text;
+        if (k === 1) td.style.borderLeft = `4px solid ${r.entrant.colour}`;
+        tr.appendChild(td);
+      }
+      body.appendChild(tr);
+    });
+    table.appendChild(body);
+    panel.appendChild(table);
+    const actions = document.createElement('div');
+    actions.className = 'menu-actions';
+    this.button(actions, 'RACE AGAIN', () => this.cb.onDrive('race'), 'menu-btn menu-btn-primary', true);
+    this.button(actions, 'MAIN MENU', () => this.cb.onQuit());
     panel.appendChild(actions);
     this.root.appendChild(panel);
   }

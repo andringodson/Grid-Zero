@@ -1,4 +1,5 @@
 import { formatDelta, formatLapTime, type LapTimer, type TimingEvent } from '../game/LapTimer.ts';
+import type { Race } from '../game/Race.ts';
 import type { Car } from '../physics/Car.ts';
 import type { Track } from '../track/Track.ts';
 
@@ -47,11 +48,25 @@ export class Hud {
   private readonly mapTransform: (x: number, z: number) => [number, number];
   private toastTimer = 0;
   private ledState = '';
+  private readonly posBox: HTMLElement;
+  private readonly pos: Text;
+  private readonly posOf: Text;
+  private readonly raceLap: Text;
+  private readonly tower: HTMLElement;
+  private readonly lights: HTMLElement;
+  private readonly lamps: HTMLElement[] = [];
+  private towerClock = 0;
+  private raceMode = false;
+  private totalLaps = 0;
 
   constructor(parent: HTMLElement, track: Track) {
     this.root = el('div', 'hud', parent);
 
     const timing = el('div', 'hud-panel hud-timing', this.root);
+    this.posBox = el('div', 'hud-pos', timing);
+    this.pos = new Text(el('span', 'hud-pos-n', this.posBox, 'P1'));
+    this.posOf = new Text(el('span', 'hud-pos-of', this.posBox, '/1'));
+    this.raceLap = new Text(el('span', 'hud-pos-lap', this.posBox, 'LAP 1/3'));
     const head = el('div', 'hud-row', timing);
     this.lap = new Text(el('span', 'hud-label', head, 'OUT LAP'));
     this.invalid = el('span', 'hud-invalid', head, 'INVALID');
@@ -83,7 +98,14 @@ export class Hud {
     const pedalR = el('div', 'hud-pedal', dash);
     this.throttleBar = el('div', 'hud-pedal-fill hud-throttle', pedalR);
 
+    this.tower = el('ol', 'hud-tower', this.root);
+    this.lights = el('div', 'hud-lights', this.root);
+    for (let i = 0; i < 5; i++) {
+      const col = el('div', 'hud-lamp-col', this.lights);
+      this.lamps.push(el('span', 'hud-lamp', col), el('span', 'hud-lamp', col));
+    }
     this.toast = el('div', 'hud-toast', this.root);
+    this.setRaceMode(false, 0, 0);
 
     // Minimap: the circuit is drawn once to an offscreen canvas; each frame only the dots are drawn on top.
     this.map = el('canvas', 'hud-map', this.root);
@@ -129,6 +151,43 @@ export class Hud {
 
   show(visible: boolean): void {
     this.root.style.display = visible ? '' : 'none';
+  }
+
+  setRaceMode(on: boolean, cars: number, laps: number): void {
+    this.raceMode = on;
+    this.totalLaps = laps;
+    this.posBox.style.display = on ? '' : 'none';
+    this.tower.style.display = on ? '' : 'none';
+    this.posOf.set(`/${cars}`);
+    this.setLights(0, !on);
+  }
+
+  /** Start gantry: `lit` red columns; hidden once the race is under way. */
+  setLights(lit: number, hidden: boolean): void {
+    this.lights.style.display = hidden ? 'none' : '';
+    this.lamps.forEach((lamp, i) => lamp.classList.toggle('on', Math.floor(i / 2) < lit));
+  }
+
+  updateRace(dt: number, race: Race, playerId: string): void {
+    if (!this.raceMode) return;
+    const me = race.standing(playerId);
+    this.pos.set(`P${race.position(playerId)}`);
+    this.raceLap.set(me.finished ? 'FINISHED' : `LAP ${Math.max(1, Math.min(me.lap, this.totalLaps))}/${this.totalLaps}`);
+
+    // The tower only needs refreshing a few times a second.
+    this.towerClock -= dt;
+    if (this.towerClock > 0) return;
+    this.towerClock = 0.25;
+    const rows = race.standings();
+    this.tower.replaceChildren(
+      ...rows.map((st, i) => {
+        const li = document.createElement('li');
+        li.className = `hud-tower-row${st.entrant.isPlayer ? ' me' : ''}`;
+        const gap = i === 0 ? (st.finished ? 'WIN' : 'LEADER') : st.finished && rows[0].finishTime !== null ? `+${(st.finishTime! - rows[0].finishTime!).toFixed(1)}` : `+${st.gap.toFixed(1)}`;
+        li.innerHTML = `<span class="p">${i + 1}</span><span class="c" style="background:${st.entrant.colour}"></span><span class="n">${st.entrant.code}</span><span class="g">${race.phase === 'lights' ? '' : gap}</span>`;
+        return li;
+      }),
+    );
   }
 
   flash(message: string, kind: 'best' | 'bad' | 'info' = 'info', seconds = 2.5): void {

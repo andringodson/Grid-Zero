@@ -3,6 +3,8 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import type { DriverSkill } from '../ai/Driver.ts';
+import { computeRacingLine } from '../ai/racingLine.ts';
 import type { Input, InputFrame } from '../input/Input.ts';
 import { Car, type Assists } from '../physics/Car.ts';
 import { GZ26 } from '../physics/carSpec.ts';
@@ -13,10 +15,12 @@ import type { QualitySettings } from '../render/quality.ts';
 import { buildScenery } from '../render/scenery.ts';
 import { buildTrackMeshes } from '../render/trackMesh.ts';
 import type { Track } from '../track/Track.ts';
+import { Field, type FieldCar } from './Field.ts';
 import type { Team } from './teams.ts';
 import { World } from './World.ts';
 
 export const PHYSICS_HZ = 240;
+export const PLAYER_ID = 'player';
 const STEP = 1 / PHYSICS_HZ;
 /** Longest frame the simulation will catch up on; beyond this (a background tab, a stall) it slows down instead. */
 const MAX_FRAME = 0.1;
@@ -46,12 +50,17 @@ export class Game {
   readonly car: Car;
   readonly world: World;
   readonly track: Track;
+  readonly field: Field;
   paused = false;
   /** Menu backdrop: the camera orbits the parked car. */
   showcase = false;
+  /** Cars wait on the grid for the start lights. */
+  held = false;
 
+  private readonly player: FieldCar;
   private readonly env: Environment;
   private visual: CarVisual;
+  private readonly opponentVisuals = new Map<string, CarVisual>();
   private readonly castShadows: boolean;
   private readonly composer: EffectComposer | null;
   private readonly input: Input;
@@ -85,6 +94,8 @@ export class Game {
     const grid = o.track.gridSlot(0);
     this.car.reset(grid.x, grid.z, grid.heading);
     this.world = new World(o.track, this.car);
+    this.field = new Field(o.track, computeRacingLine(o.track, GZ26));
+    this.player = this.field.addPlayer(PLAYER_ID, this.car, this.world);
     this.castShadows = q.shadows;
     this.visual = buildCarModel(this.car, o.team.livery, q.shadows);
     this.scene.add(this.visual.root);
@@ -133,13 +144,41 @@ export class Game {
   }
 
   setTeam(team: Team): void {
-    this.scene.remove(this.visual.root);
-    this.visual.root.traverse((o) => {
-      if (o instanceof THREE.Mesh) o.geometry.dispose();
-    });
+    this.disposeVisual(this.visual);
     this.visual = buildCarModel(this.car, team.livery, this.castShadows);
     this.scene.add(this.visual.root);
     this.visual.update(this.car);
+  }
+
+  /** Puts AI opponents on the grid; the player starts from `playerSlot`. */
+  setupOpponents(opponents: readonly { id: string; team: Team; skill: DriverSkill; slot: number }[], playerSlot: number): void {
+    this.clearOpponents();
+    for (const o of opponents) {
+      const fc = this.field.addAI(o.id, GZ26, o.skill, o.slot);
+      const visual = buildCarModel(fc.car, o.team.livery, this.castShadows);
+      this.scene.add(visual.root);
+      visual.update(fc.car);
+      this.opponentVisuals.set(o.id, visual);
+    }
+    this.toGrid(playerSlot);
+  }
+
+  clearOpponents(): void {
+    for (const v of this.opponentVisuals.values()) this.disposeVisual(v);
+    this.opponentVisuals.clear();
+    this.field.removeAI();
+  }
+
+  /** Distance along the lap for any car in the field. */
+  sOf(id: string): number {
+    return this.field.cars.find((fc) => fc.id === id)!.world.projection.s;
+  }
+
+  private disposeVisual(v: CarVisual): void {
+    this.scene.remove(v.root);
+    v.root.traverse((o) => {
+      if (o instanceof THREE.Mesh) o.geometry.dispose();
+    });
   }
 
   private resize(container: HTMLElement): void {
@@ -158,25 +197,27 @@ export class Game {
     if (input.camera && !this.paused) this.rig.next();
     if (input.reset && !this.paused) this.resetCar();
 
-    let impact = 0;
+    this.field.beginFrame();
     if (!this.paused) {
+      this.field.plan();
       this.accumulator += dt;
       let first = true;
       while (this.accumulator >= STEP) {
         // Gear shifts are edge-triggered, so they apply to the first physics step of the frame only.
         const controls = first ? input : { ...input, shiftUp: false, shiftDown: false };
-        this.car.step(STEP, controls, this.world.probe);
-        impact = Math.max(impact, this.world.constrain(this.car).impact);
+        this.field.step(STEP, controls, this.held);
         this.accumulator -= STEP;
         first = false;
       }
     }
+    const impact = this.player.impact;
 
     const kerb = this.car.wheelSurface.filter((k) => k === 'kerb').length / 4;
     if (impact > 2) this.rig.bump(Math.min(1, impact / 25));
     this.onFrame?.(this, { dt, input, impact, kerb });
 
     this.visual.update(this.car);
+    for (const fc of this.field.cars) this.opponentVisuals.get(fc.id)?.update(fc.car);
     if (this.showcase) this.rig.showcase(this.car, dt);
     else this.rig.update(this.car, dt, Math.abs(this.car.u) > 5 ? kerb : 0);
     this.env.follow(this.visual.root.position);

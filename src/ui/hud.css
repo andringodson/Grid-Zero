@@ -279,6 +279,125 @@
   color: var(--bad);
 }
 
+.hud-pos {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.hud-pos-n {
+  font-size: 30px;
+  font-weight: 800;
+  font-style: italic;
+  line-height: 1;
+}
+
+.hud-pos-of {
+  font-size: 15px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.hud-pos-lap {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.hud-tower {
+  position: absolute;
+  top: calc(250px + var(--safe-t));
+  left: calc(14px + var(--safe-l));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  width: 190px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hud-tower-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  background: rgba(10, 12, 16, 0.68);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.hud-tower-row:first-child {
+  border-radius: 6px 6px 0 0;
+}
+
+.hud-tower-row:last-child {
+  border-radius: 0 0 6px 6px;
+}
+
+.hud-tower-row.me {
+  background: rgba(255, 255, 255, 0.92);
+  color: #0b0d10;
+}
+
+.hud-tower-row .p {
+  width: 16px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-tower-row .c {
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
+}
+
+.hud-tower-row .n {
+  flex: 1;
+  letter-spacing: 0.06em;
+}
+
+.hud-tower-row .g {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.hud-lights {
+  position: absolute;
+  top: calc(18% + var(--safe-t));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #050506;
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+
+.hud-lamp-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hud-lamp {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #2a0a0c;
+}
+
+.hud-lamp.on {
+  background: #ff1a2a;
+  box-shadow: 0 0 18px #ff1a2a, inset 0 0 6px rgba(255, 255, 255, 0.4);
+}
+
 /* Phones: smaller panels, minimap tucked away so the touch controls have room. */
 @media (max-width: 900px), (max-height: 500px) {
   .hud-timing {
@@ -300,5 +419,13 @@
   }
   .hud-toast {
     font-size: 12px;
+  }
+  /* No room for the full tower beside the steering control. */
+  .hud-tower {
+    display: none !important;
+  }
+  .hud-lamp {
+    width: 20px;
+    height: 20px;
   }
 }
