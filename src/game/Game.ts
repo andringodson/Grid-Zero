@@ -221,6 +221,7 @@ export class Game {
     if (this.showcase) this.rig.showcase(this.car, dt);
     else this.rig.update(this.car, dt, Math.abs(this.car.u) > 5 ? kerb : 0);
     this.env.follow(this.visual.root.position);
+    this.env.update(dt);
     if (this.composer) this.composer.render();
     else this.renderer.render(this.scene, this.rig.camera);
   }

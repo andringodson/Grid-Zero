@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
+import { createCloudLayer } from './clouds.ts';
 import type { QualitySettings } from './quality.ts';
 
 export interface Environment {
@@ -8,6 +9,8 @@ export interface Environment {
   sunDirection: THREE.Vector3;
   /** Keeps the shadow map centred on the player so it stays sharp where it matters. */
   follow(target: THREE.Vector3): void;
+  /** Advances anything that moves on its own, such as the clouds. */
+  update(dt: number): void;
   dispose(): void;
 }
 
@@ -34,6 +37,8 @@ export function createEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Sc
   u.mieDirectionalG.value = 0.8;
   u.sunPosition.value.copy(sunDirection);
   scene.add(sky);
+  const clouds = createCloudLayer(q, sunDirection);
+  scene.add(clouds.mesh);
 
   // Image-based lighting: render the sky once into a prefiltered environment map, so paint and
   // metal reflect a sky that matches the one on screen.
@@ -47,6 +52,8 @@ export function createEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Sc
   envSky.material.uniforms.mieDirectionalG.value = u.mieDirectionalG.value;
   envSky.material.uniforms.sunPosition.value.copy(sunDirection);
   envScene.add(envSky);
+  // The same clouds, frozen, so bodywork reflects broken cloud rather than a clear sky.
+  envScene.add(clouds.makeMesh(900));
   // A green-brown ground disc so reflections below the horizon aren't sky-coloured.
   const groundDisc = new THREE.Mesh(
     new THREE.CircleGeometry(900, 32),
@@ -94,6 +101,9 @@ export function createEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Sc
       const z = Math.round(target.z / texel) * texel;
       sun.target.position.set(x, 0, z);
       sun.position.set(x + sunDirection.x * 300, sunDirection.y * 300, z + sunDirection.z * 300);
+    },
+    update(dt: number) {
+      clouds.update(dt);
     },
     dispose() {
       envTarget.dispose();
