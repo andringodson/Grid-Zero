@@ -150,5 +150,10 @@ document.addEventListener('visibilitychange', () => {
 setMode('menu');
 game.start();
 
+// Offline play and home-screen install. Only in production builds, so development always loads fresh code.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`));
+}
+
 // Exposed for debugging in the browser console during development.
 if (import.meta.env.DEV) Object.assign(window, { game, getTimer: () => timer, setMode });
