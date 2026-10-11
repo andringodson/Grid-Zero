@@ -41,7 +41,7 @@ test('eight AI cars race three laps: everyone finishes, with overtakes and no bi
     field.addAI(id, GZ26, { pace: 0.9 + slot * 0.01 + rand() * 0.004, laneOffset: 0 }, slot);
     entrants.push({ id, name: id, code: id, teamName: 't', colour: '#fff', isPlayer: false });
   }
-  const race = new Race(track.length, 3, entrants, field.cars.map((fc) => fc.world.projection.s), rand);
+  const race = new Race(track.length, 3, entrants, field.cars.map((fc) => fc.world.projection.s), { random: rand });
   const startOrder = field.cars.map((fc) => fc.id);
 
   // Distinct heavy incidents: one per car per second at most, since a single contact spans several steps.
