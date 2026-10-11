@@ -1,5 +1,7 @@
 import './ui/hud.css';
+import './ui/touch.css';
 import { CarAudio } from './audio/CarAudio.ts';
+import { TouchControls } from './ui/touch.ts';
 import { Game } from './game/Game.ts';
 import { LapTimer } from './game/LapTimer.ts';
 import { loadBestLap, saveBestLap } from './game/storage.ts';
@@ -15,6 +17,9 @@ const input = new Input();
 const track = new Track(HALDEN_RING);
 const timer = new LapTimer(track.length, track.sectorStarts, loadBestLap(track.id));
 const hud = new Hud(document.body, track);
+const touch = new TouchControls(document.body, input.touch);
+touch.show(matchMedia('(pointer: coarse)').matches);
+touch.showPaddles(false);
 const audio = new CarAudio();
 // Browsers only allow sound after the player interacts with the page.
 const unlockAudio = () => void audio.resume();

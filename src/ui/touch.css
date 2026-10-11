@@ -1,0 +1,194 @@
+.touch {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+}
+
+.touch-steer {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 50%;
+  height: 62%;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.touch-track {
+  position: absolute;
+  left: calc(28px + var(--safe-l));
+  bottom: calc(34px + var(--safe-b));
+  width: 160px;
+  height: 56px;
+  border-radius: 28px;
+  background: rgba(10, 12, 16, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.touch-knob {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.touch-hint {
+  position: absolute;
+  left: calc(28px + var(--safe-l));
+  bottom: calc(96px + var(--safe-b));
+  width: 160px;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 600;
+}
+
+.touch-tilt .touch-hint::after {
+  content: ' (TILT ON)';
+}
+
+.touch-tilt .touch-steer {
+  pointer-events: none;
+}
+
+.touch-pedals {
+  position: absolute;
+  right: calc(18px + var(--safe-r));
+  bottom: calc(18px + var(--safe-b));
+  display: flex;
+  gap: 14px;
+  align-items: flex-end;
+}
+
+.touch-pedal {
+  pointer-events: auto;
+  touch-action: none;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.8);
+  transition: transform 60ms ease, background 60ms ease;
+}
+
+.touch-brake {
+  width: 92px;
+  height: 110px;
+  background: rgba(255, 45, 61, 0.28);
+}
+
+.touch-throttle {
+  width: 92px;
+  height: 150px;
+  background: rgba(61, 220, 132, 0.25);
+}
+
+.touch-pedal.down {
+  transform: scale(0.95);
+}
+
+.touch-brake.down {
+  background: rgba(255, 45, 61, 0.6);
+}
+
+.touch-throttle.down {
+  background: rgba(61, 220, 132, 0.55);
+}
+
+/* A row under the minimap, clear of the pedals even on short landscape phones. */
+.touch-buttons {
+  position: absolute;
+  top: calc(130px + var(--safe-t));
+  right: calc(14px + var(--safe-r));
+  display: flex;
+  gap: 8px;
+}
+
+.touch-buttons .touch-btn {
+  height: 34px;
+}
+
+.touch-paddles {
+  position: absolute;
+  right: calc(232px + var(--safe-r));
+  bottom: calc(24px + var(--safe-b));
+  display: flex;
+  gap: 8px;
+}
+
+.touch-btn {
+  pointer-events: auto;
+  touch-action: none;
+  min-width: 52px;
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(10, 12, 16, 0.5);
+  color: #fff;
+  font: 700 11px var(--font);
+  letter-spacing: 0.1em;
+}
+
+.touch-btn:active {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.rotate-hint {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--bg);
+  color: var(--fg);
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 16px;
+  text-align: center;
+  padding: 24px;
+}
+
+.rotate-hint svg {
+  width: 64px;
+  height: 64px;
+  animation: rotate-hint 2.4s ease-in-out infinite;
+}
+
+@keyframes rotate-hint {
+  0%,
+  30% {
+    transform: rotate(0deg);
+  }
+  60%,
+  100% {
+    transform: rotate(-90deg);
+  }
+}
+
+@media (pointer: coarse) and (orientation: portrait) {
+  .rotate-hint {
+    display: flex;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rotate-hint svg {
+    animation: none;
+  }
+}
