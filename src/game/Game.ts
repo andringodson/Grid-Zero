@@ -47,9 +47,12 @@ export class Game {
   readonly world: World;
   readonly track: Track;
   paused = false;
+  /** Menu backdrop: the camera orbits the parked car. */
+  showcase = false;
 
   private readonly env: Environment;
-  private readonly visual: CarVisual;
+  private visual: CarVisual;
+  private readonly castShadows: boolean;
   private readonly composer: EffectComposer | null;
   private readonly input: Input;
   private readonly onFrame?: GameOptions['onFrame'];
@@ -82,6 +85,7 @@ export class Game {
     const grid = o.track.gridSlot(0);
     this.car.reset(grid.x, grid.z, grid.heading);
     this.world = new World(o.track, this.car);
+    this.castShadows = q.shadows;
     this.visual = buildCarModel(this.car, o.team.livery, q.shadows);
     this.scene.add(this.visual.root);
     this.visual.update(this.car);
@@ -117,6 +121,27 @@ export class Game {
     this.rig.snap(this.car);
   }
 
+  /** Puts the car back in its grid slot, stopped. */
+  toGrid(slot = 0): void {
+    const g = this.track.gridSlot(slot);
+    this.car.reset(g.x, g.z, g.heading);
+    this.world.forgetPosition();
+    this.world.projection = this.track.project(this.car.x, this.car.z);
+    this.accumulator = 0;
+    this.visual.update(this.car);
+    this.rig.snap(this.car);
+  }
+
+  setTeam(team: Team): void {
+    this.scene.remove(this.visual.root);
+    this.visual.root.traverse((o) => {
+      if (o instanceof THREE.Mesh) o.geometry.dispose();
+    });
+    this.visual = buildCarModel(this.car, team.livery, this.castShadows);
+    this.scene.add(this.visual.root);
+    this.visual.update(this.car);
+  }
+
   private resize(container: HTMLElement): void {
     const w = container.clientWidth;
     const h = container.clientHeight;
@@ -130,7 +155,7 @@ export class Game {
     const dt = this.lastTime < 0 ? 0 : Math.min(MAX_FRAME, now - this.lastTime);
     this.lastTime = now;
     const input = this.input.poll(dt);
-    if (input.camera) this.rig.next();
+    if (input.camera && !this.paused) this.rig.next();
     if (input.reset && !this.paused) this.resetCar();
 
     let impact = 0;
@@ -152,7 +177,8 @@ export class Game {
     this.onFrame?.(this, { dt, input, impact, kerb });
 
     this.visual.update(this.car);
-    this.rig.update(this.car, dt, Math.abs(this.car.u) > 5 ? kerb : 0);
+    if (this.showcase) this.rig.showcase(this.car, dt);
+    else this.rig.update(this.car, dt, Math.abs(this.car.u) > 5 ? kerb : 0);
     this.env.follow(this.visual.root.position);
     if (this.composer) this.composer.render();
     else this.renderer.render(this.scene, this.rig.camera);

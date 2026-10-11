@@ -31,6 +31,17 @@ export class CameraRig {
     this.shake = Math.min(1, this.shake + amount);
   }
 
+  /** Slow orbit around the parked car, behind the menus. */
+  showcase(car: Car, dt: number): void {
+    this.time += dt;
+    const angle = this.time * 0.12 + 2.4;
+    const cam = this.camera;
+    cam.position.set(car.x + Math.cos(angle) * 7.5, 1.9 + Math.sin(this.time * 0.2) * 0.3, car.z + Math.sin(angle) * 7.5);
+    cam.lookAt(car.x, 0.55, car.z);
+    cam.fov = 40;
+    cam.updateProjectionMatrix();
+  }
+
   snap(car: Car): void {
     this.yaw = car.yaw;
     this.update(car, 1, 0);

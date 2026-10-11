@@ -73,6 +73,11 @@ export class World {
     const p = this.track.project(car.x, car.z, this.centreHint);
     const point = this.track.pointAt(p.s, 0);
     car.reset(point.x, point.z, point.heading);
+    this.forgetPosition();
+  }
+
+  /** Call after moving the car by more than a few metres, so the next lookups search the whole circuit. */
+  forgetPosition(): void {
     this.wheelHints = [-1, -1, -1, -1];
     this.centreHint = -1;
   }
