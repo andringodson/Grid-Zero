@@ -23,6 +23,13 @@ export const DIFFICULTY_PACE: Record<Difficulty, [number, number]> = {
   hard: [0.945, 0.985],
 };
 
+/** How rarely rivals make mistakes, and how steady their lap times are. */
+export const DIFFICULTY_CONSISTENCY: Record<Difficulty, number> = {
+  easy: 0.6,
+  medium: 0.75,
+  hard: 0.9,
+};
+
 export const RACE_LAPS = [3, 5, 10] as const;
 
 const DEFAULT_ASSISTS: Assists = { steering: true, autoGears: true, tractionControl: true, abs: true };

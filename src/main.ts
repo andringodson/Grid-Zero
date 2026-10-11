@@ -8,7 +8,7 @@ import { Game, PLAYER_ID } from './game/Game.ts';
 import { LapTimer } from './game/LapTimer.ts';
 import { findDrsZones, inZone } from './game/drs.ts';
 import { Race, type RaceEntrant } from './game/Race.ts';
-import { DIFFICULTY_PACE, loadSettings, saveSettings, type Settings } from './game/settings.ts';
+import { DIFFICULTY_CONSISTENCY, DIFFICULTY_PACE, loadSettings, saveSettings, type Settings } from './game/settings.ts';
 import { loadBestLap, saveBestLap } from './game/storage.ts';
 import { TEAMS, type Team } from './game/teams.ts';
 import { Input } from './input/Input.ts';
@@ -274,7 +274,12 @@ function startSession(next: SessionMode): void {
     id: `ai-${i}`,
     team: r.team,
     slot: slots[i],
-    skill: { pace: lo + Math.random() * (hi - lo), laneOffset: 0 },
+    skill: {
+      pace: lo + Math.random() * (hi - lo),
+      laneOffset: 0,
+      consistency: DIFFICULTY_CONSISTENCY[settings.difficulty] + (Math.random() - 0.5) * 0.1,
+      seed: Math.floor(Math.random() * 1e9),
+    },
   }));
   game.setupOpponents(opponents, playerSlot);
 

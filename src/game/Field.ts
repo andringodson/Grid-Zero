@@ -36,6 +36,7 @@ export class Field {
   readonly track: Track;
   readonly line: RacingLine;
   readonly cars: FieldCar[] = [];
+  private wasHeld = false;
 
   constructor(track: Track, line: RacingLine) {
     this.track = track;
@@ -131,6 +132,8 @@ export class Field {
    * stay parked: stepping them with the brake on would, after a moment, select reverse.
    */
   step(dt: number, player: CarControls, held: boolean): void {
+    if (this.wasHeld && !held) for (const fc of this.cars) fc.driver?.startReaction();
+    this.wasHeld = held;
     if (held) return;
     for (const fc of this.cars) {
       const controls = fc.driver ? fc.driver.drive(fc.car, dt) : player;
