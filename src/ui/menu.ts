@@ -259,7 +259,9 @@ export class Menu {
     const panel = document.createElement('div');
     panel.className = 'menu-panel menu-results';
     const me = this.results.findIndex((r) => r.entrant.isPlayer);
-    const winnerTime = this.results[0]?.finishTime ?? null;
+    // Classified times include any track-limits penalties.
+    const classified = (r: Standing) => (r.finishTime === null ? null : r.finishTime + r.penalty);
+    const winnerTime = this.results[0] ? classified(this.results[0]) : null;
     panel.innerHTML = `<h2>${me === 0 ? 'YOU WIN!' : `YOU FINISHED P${me + 1}`}</h2>`;
     const table = document.createElement('table');
     table.className = 'menu-table';
@@ -268,12 +270,9 @@ export class Menu {
     this.results.forEach((r, i) => {
       const tr = document.createElement('tr');
       if (r.entrant.isPlayer) tr.className = 'me';
-      const time =
-        i === 0 && r.finishTime !== null
-          ? formatLapTime(r.finishTime)
-          : r.finished && winnerTime !== null
-            ? `+${(r.finishTime! - winnerTime).toFixed(3)}`
-            : 'Running';
+      const t = classified(r);
+      let time = i === 0 && t !== null ? formatLapTime(t) : r.finished && t !== null && winnerTime !== null ? `+${(t - winnerTime).toFixed(3)}` : 'Running';
+      if (r.penalty > 0) time += ` (${r.penalty}s pen)`;
       const cells = [String(i + 1), r.entrant.name, r.entrant.teamName, time, formatLapTime(r.bestLap)];
       for (const [k, text] of cells.entries()) {
         const td = document.createElement('td');

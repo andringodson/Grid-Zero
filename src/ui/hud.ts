@@ -6,6 +6,16 @@ import type { Track } from '../track/Track.ts';
 const LEDS = 15;
 const SHIFT_LIGHT_START = 10400;
 
+/** Blue when cold, green in the window, through amber to red when overheating. */
+function tyreColour(temp: number, optimal: number): string {
+  const d = temp - optimal;
+  if (d < -25) return '#3d7bff';
+  if (d < -10) return '#3dc4d6';
+  if (d <= 12) return '#3ddc84';
+  if (d <= 25) return '#ffcc33';
+  return '#ff3b30';
+}
+
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, parent?: HTMLElement, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   e.className = className;
@@ -58,6 +68,12 @@ export class Hud {
   private towerClock = 0;
   private raceMode = false;
   private totalLaps = 0;
+  private readonly drs: HTMLElement;
+  private drsState = '';
+  private readonly tyres: HTMLElement[] = [];
+  private readonly tyreWear: HTMLElement[] = [];
+  private readonly fuel: Text;
+  private tyreClock = 0;
 
   constructor(parent: HTMLElement, track: Track) {
     this.root = el('div', 'hud', parent);
@@ -89,6 +105,7 @@ export class Hud {
       this.leds.push(el('span', `hud-led hud-led-${colour}`, ledRow));
     }
     const dash = el('div', 'hud-dash', tele);
+    this.drs = el('div', 'hud-drs', dash, 'DRS');
     const pedalL = el('div', 'hud-pedal', dash);
     this.brakeBar = el('div', 'hud-pedal-fill hud-brake', pedalL);
     const speedBox = el('div', 'hud-speedbox', dash);
@@ -97,6 +114,15 @@ export class Hud {
     this.gear = new Text(el('div', 'hud-gear', dash, 'N'));
     const pedalR = el('div', 'hud-pedal', dash);
     this.throttleBar = el('div', 'hud-pedal-fill hud-throttle', pedalR);
+    // Tyres seen from above: colour is surface temperature, the bar inside is tread left.
+    const tyres = el('div', 'hud-tyres', dash);
+    const grid = el('div', 'hud-tyre-grid', tyres);
+    for (let w = 0; w < 4; w++) {
+      const t = el('div', 'hud-tyre', grid);
+      this.tyreWear.push(el('div', 'hud-tyre-wear', t));
+      this.tyres.push(t);
+    }
+    this.fuel = new Text(el('div', 'hud-fuel', tyres, ''));
 
     this.tower = el('ol', 'hud-tower', this.root);
     this.lights = el('div', 'hud-lights', this.root);
@@ -151,6 +177,14 @@ export class Hud {
 
   show(visible: boolean): void {
     this.root.style.display = visible ? '' : 'none';
+  }
+
+  /** DRS light: dark when unavailable, outlined when it can be opened, solid green while open. */
+  setDrs(available: boolean, open: boolean): void {
+    const state = open ? 'open' : available ? 'ready' : '';
+    if (state === this.drsState) return;
+    this.drsState = state;
+    this.drs.className = `hud-drs ${state}`;
   }
 
   setRaceMode(on: boolean, cars: number, laps: number): void {
@@ -242,6 +276,18 @@ export class Hud {
     if (state !== this.ledState) {
       this.ledState = state;
       this.leds.forEach((led, i) => led.classList.toggle('on', !blink && i < lit));
+    }
+
+    // Tyres and fuel: a few updates a second is plenty.
+    this.tyreClock -= dt;
+    if (this.tyreClock <= 0) {
+      this.tyreClock = 0.2;
+      for (let w = 0; w < 4; w++) {
+        this.tyres[w].style.background = tyreColour(car.tyreTemp[w], car.spec.tyreOptimalTemp);
+        this.tyreWear[w].style.transform = `scaleY(${(1 - car.tyreWear[w]).toFixed(2)})`;
+      }
+      this.tyres[0].parentElement!.title = car.tyreTemp.map((t) => `${t.toFixed(0)}°C`).join(' ');
+      this.fuel.set(`${car.fuel.toFixed(1)} kg`);
     }
 
     // Toast.

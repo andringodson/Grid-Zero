@@ -12,6 +12,8 @@ export interface InputFrame {
   camera: boolean;
   reset: boolean;
   pause: boolean;
+  /** Toggle the DRS flap (only works inside an enabled DRS zone). */
+  drs: boolean;
   /** Where the most recent input came from; the game picks assists and on-screen controls from it. */
   source: InputSource;
 }
@@ -27,9 +29,10 @@ export interface TouchState {
   camera: boolean;
   reset: boolean;
   pause: boolean;
+  drs: boolean;
 }
 
-type Action = 'throttle' | 'brake' | 'left' | 'right' | 'shiftUp' | 'shiftDown' | 'camera' | 'reset' | 'pause';
+type Action = 'throttle' | 'brake' | 'left' | 'right' | 'shiftUp' | 'shiftDown' | 'camera' | 'reset' | 'pause' | 'drs';
 
 const KEYS: Record<string, Action> = {
   KeyW: 'throttle',
@@ -48,10 +51,11 @@ const KEYS: Record<string, Action> = {
   KeyR: 'reset',
   Escape: 'pause',
   KeyP: 'pause',
+  KeyF: 'drs',
 };
 
 /** Standard gamepad layout (Xbox naming). */
-const PAD = { a: 0, b: 1, x: 2, y: 3, lt: 6, rt: 7, start: 9 } as const;
+const PAD = { a: 0, b: 1, x: 2, y: 3, rb: 5, lt: 6, rt: 7, start: 9 } as const;
 const DEADZONE = 0.08;
 
 /** How fast keyboard inputs travel, per second: steering takes ~0.3 s to full lock and returns faster. */
@@ -70,6 +74,7 @@ export class Input {
     camera: false,
     reset: false,
     pause: false,
+    drs: false,
   };
 
   private held = new Set<Action>();
@@ -111,6 +116,7 @@ export class Input {
       camera: this.pressed.has('camera'),
       reset: this.pressed.has('reset'),
       pause: this.pressed.has('pause'),
+      drs: this.pressed.has('drs'),
       source: this.source,
     };
     this.pressed.clear();
@@ -152,6 +158,7 @@ export class Input {
       frame.camera ||= pressedNow(PAD.y);
       frame.reset ||= pressedNow(PAD.b);
       frame.pause ||= pressedNow(PAD.start);
+      frame.drs ||= pressedNow(PAD.rb);
     }
 
     // Touch.
@@ -167,7 +174,8 @@ export class Input {
     frame.camera ||= t.camera;
     frame.reset ||= t.reset;
     frame.pause ||= t.pause;
-    t.shiftUp = t.shiftDown = t.camera = t.reset = t.pause = false;
+    frame.drs ||= t.drs;
+    t.shiftUp = t.shiftDown = t.camera = t.reset = t.pause = t.drs = false;
 
     frame.steer = clamp(frame.steer, -1, 1);
     frame.source = this.source;
