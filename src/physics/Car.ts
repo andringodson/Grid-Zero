@@ -238,14 +238,15 @@ export class Car {
 
     // Traction: drive force beyond what the rear tyres can carry becomes wheelspin.
     let spinTarget = 0;
-    if (Math.abs(drive) > gripRear) {
-      if (this.assists.tractionControl) {
-        drive = Math.sign(drive) * gripRear * 0.85;
-        spinTarget = 0.02;
-      } else {
-        spinTarget = clamp((Math.abs(drive) / gripRear - 1) * 0.6, 0, 0.6);
-        drive = Math.sign(drive) * gripRear * (1 - 0.25 * spinTarget);
-      }
+    // Traction control keeps drive within what the rear tyres can carry alongside the cornering they're already doing.
+    const rearLatUse = Math.min(0.95, Math.abs(pacejka(this.alphaR, s.tyre)));
+    const tcLimit = gripRear * Math.sqrt(1 - rearLatUse * rearLatUse) * 0.92;
+    if (this.assists.tractionControl && Math.abs(drive) > tcLimit) {
+      drive = Math.sign(drive) * tcLimit;
+      spinTarget = 0.02;
+    } else if (Math.abs(drive) > gripRear) {
+      spinTarget = clamp((Math.abs(drive) / gripRear - 1) * 0.6, 0, 0.6);
+      drive = Math.sign(drive) * gripRear * (1 - 0.25 * spinTarget);
     }
     this.wheelSpin = damp(this.wheelSpin, spinTarget, 0.12, dt);
 
