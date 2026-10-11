@@ -16,7 +16,7 @@ function noiseBuffer(ctx: AudioContext, seconds: number): AudioBuffer {
 }
 
 /** Harmonic recipe for a V6: strong components at multiples of the firing frequency (every 3rd crank harmonic). */
-function engineWave(ctx: AudioContext): PeriodicWave {
+export function engineWave(ctx: AudioContext): PeriodicWave {
   const n = 40;
   const real = new Float32Array(n);
   const imag = new Float32Array(n);
@@ -29,7 +29,7 @@ function engineWave(ctx: AudioContext): PeriodicWave {
   return ctx.createPeriodicWave(real, imag);
 }
 
-function softClip(amount: number): Float32Array<ArrayBuffer> {
+export function softClip(amount: number): Float32Array<ArrayBuffer> {
   const curve = new Float32Array(1024);
   for (let i = 0; i < curve.length; i++) {
     const x = (i / (curve.length - 1)) * 2 - 1;
@@ -40,7 +40,8 @@ function softClip(amount: number): Float32Array<ArrayBuffer> {
 
 export class CarAudio {
   readonly ctx: AudioContext;
-  private readonly master: GainNode;
+  /** Everything the game plays goes through here, so volume and mute apply to all of it. */
+  readonly master: GainNode;
   private readonly bankA: OscillatorNode;
   private readonly bankB: OscillatorNode;
   private readonly engineFilter: BiquadFilterNode;

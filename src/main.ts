@@ -2,6 +2,8 @@ import './ui/hud.css';
 import './ui/touch.css';
 import './ui/menu.css';
 import { CarAudio } from './audio/CarAudio.ts';
+import { OpponentAudio } from './audio/OpponentAudio.ts';
+import { Haptics } from './input/haptics.ts';
 import { Game, PLAYER_ID } from './game/Game.ts';
 import { LapTimer } from './game/LapTimer.ts';
 import { findDrsZones, inZone } from './game/drs.ts';
@@ -44,6 +46,8 @@ const touch = new TouchControls(document.body, input.touch);
 touch.showPaddles(!settings.assists.autoGears);
 const audio = new CarAudio();
 audio.setVolume(settings.volume);
+const rivalsAudio = new OpponentAudio(audio.ctx, audio.master, settings.quality === 'high' || settings.quality === 'ultra');
+const haptics = new Haptics();
 // Browsers only allow sound after the player interacts with the page.
 const unlockAudio = () => void audio.resume();
 for (const type of ['keydown', 'pointerdown', 'touchend'] as const) window.addEventListener(type, unlockAudio);
@@ -100,6 +104,11 @@ const game = new Game({
     }
     hud.update(info.dt, g.car, timer, g.world.projection.s, opponentDots());
     audio.update(g.car, info.dt, info.kerb, info.impact);
+    if (race) {
+      const rivals = g.field.cars.filter((fc) => fc.driver).map((fc) => fc.car);
+      rivalsAudio.update(g.rig.camera, rivals, info.dt);
+    }
+    haptics.update(g.car, info.kerb, info.impact, info.dt);
   },
 });
 
@@ -234,6 +243,7 @@ function startSession(next: SessionMode): void {
 
   wasOff.clear();
   wingWarned = false;
+  rivalsAudio.silence();
 
   if (next === 'trial') {
     game.toGrid(0);
