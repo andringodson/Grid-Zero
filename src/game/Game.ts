@@ -10,6 +10,7 @@ import { Car, type Assists } from '../physics/Car.ts';
 import { GZ26 } from '../physics/carSpec.ts';
 import { CameraRig } from '../render/cameraRig.ts';
 import { buildCarModel, type CarVisual } from '../render/carModel.ts';
+import { SkidMarks } from '../render/effects/skidMarks.ts';
 import { createEnvironment, type Environment } from '../render/environment.ts';
 import type { QualitySettings } from '../render/quality.ts';
 import { buildScenery } from '../render/scenery.ts';
@@ -63,6 +64,7 @@ export class Game {
   private readonly opponentVisuals = new Map<string, CarVisual>();
   private readonly castShadows: boolean;
   private readonly composer: EffectComposer | null;
+  private readonly skids: SkidMarks;
   private readonly input: Input;
   private readonly onFrame?: GameOptions['onFrame'];
   private accumulator = 0;
@@ -96,6 +98,8 @@ export class Game {
     // The racing line tells the track where to lay rubber down.
     this.scene.add(buildTrackMeshes(o.track, q, this.field.line));
     this.scene.add(buildScenery(o.track, q));
+    this.skids = new SkidMarks(q);
+    this.scene.add(this.skids.mesh);
     this.player = this.field.addPlayer(PLAYER_ID, this.car, this.world);
     this.castShadows = q.shadows;
     this.visual = buildCarModel(this.car, o.team.livery, q.shadows);
@@ -168,6 +172,7 @@ export class Game {
     for (const v of this.opponentVisuals.values()) this.disposeVisual(v);
     this.opponentVisuals.clear();
     this.field.removeAI();
+    this.skids.prune(this.field.cars);
   }
 
   /** Distance along the lap for any car in the field. */
@@ -219,6 +224,7 @@ export class Game {
 
     this.visual.update(this.car);
     for (const fc of this.field.cars) this.opponentVisuals.get(fc.id)?.update(fc.car);
+    if (!this.paused) this.skids.update(this.field.cars);
     if (this.showcase) this.rig.showcase(this.car, dt);
     else this.rig.update(this.car, dt, Math.abs(this.car.u) > 5 ? kerb : 0);
     this.env.follow(this.visual.root.position);
