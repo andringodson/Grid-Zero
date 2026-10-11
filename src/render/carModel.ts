@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Car } from '../physics/Car.ts';
 import type { Livery } from '../game/teams.ts';
 
@@ -76,6 +77,35 @@ function rod(a: THREE.Vector3, b: THREE.Vector3, radius: number, mat: THREE.Mate
   m.position.copy(a).add(b).multiplyScalar(0.5);
   m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
   return m;
+}
+
+/**
+ * Collapses a group's direct child meshes into one mesh per material. A car is built from ~80 parts; drawing them
+ * separately would cost ~80 draw calls per car, which a phone can't afford with a full grid on screen.
+ */
+function mergeByMaterial(group: THREE.Group): void {
+  const buckets = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  const keep: THREE.Object3D[] = [];
+  for (const child of [...group.children]) {
+    if (!(child instanceof THREE.Mesh) || Array.isArray(child.material)) {
+      keep.push(child);
+      continue;
+    }
+    child.updateMatrix();
+    let geo = child.geometry.clone().applyMatrix4(child.matrix);
+    if (geo.index) geo = geo.toNonIndexed();
+    // Only position and normal are needed: the car's materials are untextured.
+    for (const name of Object.keys(geo.attributes)) if (name !== 'position' && name !== 'normal') geo.deleteAttribute(name);
+    const list = buckets.get(child.material) ?? [];
+    list.push(geo);
+    buckets.set(child.material, list);
+    group.remove(child);
+  }
+  for (const [mat, geos] of buckets) {
+    const merged = mergeGeometries(geos);
+    if (merged) group.add(new THREE.Mesh(merged, mat));
+  }
+  for (const k of keep) group.add(k);
 }
 
 function contactShadowTexture(): THREE.CanvasTexture {
@@ -321,6 +351,9 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean): C
   shadow.position.y = 0.01;
   shadow.renderOrder = 1;
   root.add(shadow);
+
+  mergeByMaterial(body);
+  for (const spinner of spinners) mergeByMaterial(spinner);
 
   root.traverse((o) => {
     if (o instanceof THREE.Mesh && o !== shadow) {
