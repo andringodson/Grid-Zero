@@ -85,7 +85,11 @@ export class Driver {
     const yawDamp = -car.r * 0.02;
     let steer = clamp((wheelAngle + yawDamp) / car.maxSteerAt(speed), -1, 1);
 
-    const vTarget = this.targetSpeed(p.s, speed);
+    // Drive to the tyres: cornering speed goes with the square root of grip, so cold, overheated or worn tyres
+    // mean backing off, as a real driver does on an out-lap or late in a stint.
+    let tyreGrip = 1;
+    for (let w = 0; w < 4; w++) tyreGrip = Math.min(tyreGrip, car.tyreGrip(w));
+    const vTarget = this.targetSpeed(p.s, speed) * Math.sqrt(tyreGrip);
     const err = vTarget - speed;
     let throttle = 0;
     let brake = 0;

@@ -1,8 +1,10 @@
 import { SLICK, type PacejkaCoefficients } from './tyre.ts';
 
 export interface CarSpec {
-  /** Kilograms, including driver and fuel. */
+  /** Kilograms, including the driver but not fuel. */
   mass: number;
+  /** Fuel flow at full throttle and maximum revs, kg per second. */
+  fuelBurn: number;
   wheelbase: number;
   /** Distance from the centre of gravity to the front axle. */
   cgToFront: number;
@@ -52,14 +54,20 @@ export interface CarSpec {
   tyreNominalLoad: number;
   /** Distance a tyre rolls before its slip angle catches up with a change in direction. */
   relaxationLength: number;
+
+  /** Tyre surface temperature (deg C) with peak grip, and how far either side grip has fallen by a fifth. */
+  tyreOptimalTemp: number;
+  tyreTempWindow: number;
 }
 
 /**
- * GZ-26: a fictional car built to current top-level open-wheel figures. 800 kg with driver,
+ * GZ-26: a fictional car built to current top-level open-wheel figures. 770 kg with driver plus fuel,
  * around 750 kW from a turbo-hybrid V6, and enough downforce to pull more than 5 g in fast corners.
  */
 export const GZ26: CarSpec = {
-  mass: 800,
+  mass: 770,
+  // 100 kg an hour at full power, the flow limit of a modern hybrid power unit.
+  fuelBurn: 100 / 3600,
   wheelbase: 3.6,
   cgToFront: 1.98,
   cgHeight: 0.28,
@@ -106,4 +114,7 @@ export const GZ26: CarSpec = {
   gripRear: 1.06,
   tyreNominalLoad: 3000,
   relaxationLength: 0.5,
+
+  tyreOptimalTemp: 100,
+  tyreTempWindow: 40,
 };

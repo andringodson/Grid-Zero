@@ -23,7 +23,8 @@ export interface RacingLine {
  * inside of every bend) gives the classic outside-apex-outside line with the largest radius through each corner.
  * Coarse strides first settle the long-wavelength shape, then finer strides refine it.
  */
-export function computeRacingLine(track: Track, spec: CarSpec, gripScale = 0.92): RacingLine {
+export function computeRacingLine(track: Track, spec: CarSpec, gripScale = 0.92, fuel = 30): RacingLine {
+  const mass = spec.mass + fuel;
   const n = track.count;
   const limit = track.halfWidth - 1.6;
   const offset = new Float64Array(n);
@@ -85,7 +86,7 @@ export function computeRacingLine(track: Track, spec: CarSpec, gripScale = 0.92)
 
   // Cornering speed: lateral grip mu * (g + downforce/m) must supply v^2 * curvature.
   const mu = spec.tyreMu * Math.min(spec.gripFront, spec.gripRear) * gripScale;
-  const aeroK = (0.5 * AIR_DENSITY * spec.clA) / spec.mass;
+  const aeroK = (0.5 * AIR_DENSITY * spec.clA) / mass;
   const vTop = 95;
   const speed = new Float64Array(n);
   for (let i = 0; i < n; i++) {
@@ -97,7 +98,7 @@ export function computeRacingLine(track: Track, spec: CarSpec, gripScale = 0.92)
   // Braking zones: work backwards from each corner using the deceleration grip and drag allow at each speed.
   // Two passes round the loop so corners just after the line are handled.
   const brakeMu = mu * 0.85;
-  const dragK = (0.5 * AIR_DENSITY * spec.cdA) / spec.mass;
+  const dragK = (0.5 * AIR_DENSITY * spec.cdA) / mass;
   for (let pass = 0; pass < 2; pass++) {
     for (let k = n - 1; k >= 0; k--) {
       const i = k;

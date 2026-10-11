@@ -38,7 +38,7 @@ function setWorldVelocity(car: Car, vx: number, vz: number): void {
 
 /**
  * Separates overlapping cars and applies an impulse at the contact point, so a nudge from behind pushes the car ahead
- * and a hit off-centre spins it. Equal masses, slightly inelastic.
+ * and a hit off-centre spins it. Slightly inelastic; momentum is conserved.
  */
 export function resolveCollisions(cars: readonly Car[]): Contact[] {
   const contacts: Contact[] = [];
@@ -80,11 +80,12 @@ export function resolveCollisions(cars: readonly Car[]): Contact[] {
       const closing = (avx - bvx) * nx + (avz - bvz) * nz;
       if (closing <= 0) continue;
 
-      // Equal masses: each car takes half the impulse.
-      const m = a.spec.mass;
-      const J = ((1 + RESTITUTION) * closing * m) / 2;
-      setWorldVelocity(a, avx - (J / m) * nx, avz - (J / m) * nz);
-      setWorldVelocity(b, bvx + (J / m) * nx, bvz + (J / m) * nz);
+      // Impulse between two masses (fuel loads differ, so cars aren't quite equal).
+      const ma = a.mass;
+      const mb = b.mass;
+      const J = ((1 + RESTITUTION) * closing) / (1 / ma + 1 / mb);
+      setWorldVelocity(a, avx - (J / ma) * nx, avz - (J / ma) * nz);
+      setWorldVelocity(b, bvx + (J / mb) * nx, bvz + (J / mb) * nz);
 
       // Angular impulse about each car's centre: an off-centre hit turns the car.
       const spin = (car: Car, jx: number, jz: number) => {

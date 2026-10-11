@@ -34,6 +34,16 @@ export function peakSlip(k: PacejkaCoefficients): number {
 }
 
 /**
+ * Grip multiplier from tyre surface temperature and wear. Grip peaks in the operating window and falls away
+ * either side: cold tyres slide, overheated ones go greasy. Worn tyres lose up to 12% when fully worn.
+ */
+export function tyreCondition(temp: number, wear: number, optimal: number, window: number): number {
+  const t = (temp - optimal) / window;
+  const thermal = Math.max(0.76, 1 - 0.2 * t * t);
+  return thermal * (1 - 0.12 * Math.min(1, Math.max(0, wear)));
+}
+
+/**
  * Tyre load sensitivity: the friction coefficient drops as load rises, so doubling the load
  * less than doubles the grip. This is why weight transfer costs a car grip overall.
  */
