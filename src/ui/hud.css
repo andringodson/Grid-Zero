@@ -322,15 +322,6 @@
   background: #3d8bff;
 }
 
-.hud-ers-label {
-  position: absolute;
-  bottom: -14px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 8px;
-  color: var(--muted);
-}
-
 .hud-fuel {
   font-family: var(--mono);
   font-size: 10px;

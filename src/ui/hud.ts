@@ -126,8 +126,8 @@ export class Hud {
     this.fuel = new Text(el('div', 'hud-fuel', tyres, ''));
     // Hybrid battery: fills under braking, drains as the motor deploys.
     const ers = el('div', 'hud-ers', dash);
+    ers.title = 'ERS battery';
     this.ersBar = el('div', 'hud-ers-fill', ers);
-    el('div', 'hud-ers-label', ers, 'ERS');
 
     this.tower = el('ol', 'hud-tower', this.root);
     this.lights = el('div', 'hud-lights', this.root);
