@@ -41,6 +41,11 @@ const G = 9.81;
 const AIR_DENSITY = 1.225;
 const RPM_PER_RAD_S = 60 / (2 * Math.PI);
 
+/** Below this state of charge the hybrid motor deploys less, so the battery tapers rather than running flat. */
+const ERS_TAPER = 0.5;
+/** Energy the exhaust turbine recovers at full throttle and maximum revs, W. */
+const MGUH_POWER = 60000;
+
 /** Track-day ambient air and tarmac, deg C. */
 const AMBIENT = 25;
 /** Joules to raise a tyre's working surface layer by 1 deg C. */
@@ -93,6 +98,10 @@ export class Car {
   airDownforce = 1;
   /** Front wing damage, 0 (intact) to 1 (wing gone): costs front downforce and adds drag. */
   wingDamage = 0;
+  /** Battery energy, J. */
+  ersCharge: number;
+  /** Power through the hybrid motor this step, W: positive deploying, negative harvesting. */
+  ersFlow = 0;
 
   /** 0..1 indicators for audio, HUD and effects. */
   wheelSpin = 0;
@@ -119,6 +128,7 @@ export class Car {
     this.spec = spec;
     this.assists = assists;
     this.rpm = spec.idleRpm;
+    this.ersCharge = spec.ersCapacity;
     this.peakAlpha = peakSlip(spec.tyre);
     const a = spec.cgToFront;
     const b = spec.wheelbase - a;
@@ -288,6 +298,24 @@ export class Car {
       torque *= 0.4;
     }
     let drive = (torque * ratio * s.drivetrainEfficiency) / s.wheelRadius;
+
+    // Hybrid system. At full throttle the motor deploys (force from a fixed power falls with speed, capped low down by
+    // the motor's torque), tapering as the battery runs low so energy lasts down a straight instead of cutting out
+    // all at once; the exhaust turbine (MGU-H) keeps recovering a little meanwhile. Braking and lifting recharge it.
+    const speedAbs = Math.abs(this.u);
+    const soc = this.ersCharge / s.ersCapacity;
+    let ersIn = 0;
+    let ersOut = 0;
+    if (this.gear > 0 && throttle > 0.85 && speedAbs > 8 && fuelled) {
+      ersOut = Math.min(s.ersPower * throttle * clamp(soc / ERS_TAPER, 0, 1), this.ersCharge / dt);
+      drive += ersOut / Math.max(speedAbs, 25);
+      ersIn = MGUH_POWER * (this.rpm / s.limiterRpm);
+    } else if (speedAbs > 5 && (brakeIn > 0.05 || throttle < 0.1)) {
+      ersIn = s.ersHarvest * Math.max(brakeIn, 0.5);
+    }
+    ersIn = Math.min(ersIn, (s.ersCapacity - this.ersCharge) / dt + ersOut);
+    this.ersCharge = clamp(this.ersCharge + (ersIn - ersOut) * dt, 0, s.ersCapacity);
+    this.ersFlow = ersOut - ersIn;
     if (this.gear < 0) drive = -drive;
 
     // Traction: drive force beyond what the rear tyres can carry becomes wheelspin.

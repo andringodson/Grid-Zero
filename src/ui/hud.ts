@@ -74,6 +74,7 @@ export class Hud {
   private readonly tyreWear: HTMLElement[] = [];
   private readonly fuel: Text;
   private tyreClock = 0;
+  private readonly ersBar: HTMLElement;
 
   constructor(parent: HTMLElement, track: Track) {
     this.root = el('div', 'hud', parent);
@@ -123,6 +124,10 @@ export class Hud {
       this.tyres.push(t);
     }
     this.fuel = new Text(el('div', 'hud-fuel', tyres, ''));
+    // Hybrid battery: fills under braking, drains as the motor deploys.
+    const ers = el('div', 'hud-ers', dash);
+    this.ersBar = el('div', 'hud-ers-fill', ers);
+    el('div', 'hud-ers-label', ers, 'ERS');
 
     this.tower = el('ol', 'hud-tower', this.root);
     this.lights = el('div', 'hud-lights', this.root);
@@ -269,6 +274,9 @@ export class Hud {
     this.gear.set(car.gear < 0 ? 'R' : String(car.gear));
     this.throttleBar.style.transform = `scaleY(${car.throttle.toFixed(2)})`;
     this.brakeBar.style.transform = `scaleY(${car.brake.toFixed(2)})`;
+    this.ersBar.style.transform = `scaleY(${(car.ersCharge / car.spec.ersCapacity).toFixed(3)})`;
+    this.ersBar.classList.toggle('deploying', car.ersFlow > 1000);
+    this.ersBar.classList.toggle('harvesting', car.ersFlow < -1000);
 
     const lit = Math.max(0, Math.min(LEDS, Math.ceil(((car.rpm - SHIFT_LIGHT_START) / (car.spec.upshiftRpm - SHIFT_LIGHT_START)) * LEDS)));
     const blink = car.limiter && Math.floor(performance.now() / 70) % 2 === 0;

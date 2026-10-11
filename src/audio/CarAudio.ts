@@ -232,7 +232,8 @@ export class CarAudio {
     set(this.turbo.frequency, 2200 + rpm * 0.28);
     set(this.turboGain.gain, thr * 0.012 * (rpm / car.spec.limiterRpm));
     set(this.mguk.frequency, 180 + speed * 26);
-    set(this.mgukGain.gain, (1 - thr) * Math.min(1, speed / 40) * 0.025 + car.brake * 0.02);
+    // The hybrid motor whines whenever power flows through it, harvesting under braking or deploying.
+    set(this.mgukGain.gain, Math.min(1, Math.abs(car.ersFlow) / car.spec.ersPower) * Math.min(1, speed / 30) * 0.035);
 
     // Gear change: a brief cut and a mechanical knock.
     if (car.gear !== this.lastGear) {

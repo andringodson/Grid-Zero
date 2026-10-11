@@ -296,6 +296,41 @@
   transform-origin: bottom;
 }
 
+.hud-ers {
+  position: relative;
+  width: 10px;
+  height: 64px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  align-self: center;
+}
+
+.hud-ers-fill {
+  position: absolute;
+  inset: 0;
+  background: #ffd23f;
+  transform-origin: bottom;
+  transition: background 120ms linear;
+}
+
+.hud-ers-fill.deploying {
+  background: #ffe98a;
+}
+
+.hud-ers-fill.harvesting {
+  background: #3d8bff;
+}
+
+.hud-ers-label {
+  position: absolute;
+  bottom: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  color: var(--muted);
+}
+
 .hud-fuel {
   font-family: var(--mono);
   font-size: 10px;

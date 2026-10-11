@@ -93,6 +93,23 @@ test('DRS and a slipstream each raise top speed', () => {
   assert.ok(tow > normal + 10, `tow ${tow.toFixed(1)} vs ${normal.toFixed(1)} km/h`);
 });
 
+test('the hybrid battery adds pace while charged and recharges under braking', () => {
+  const at = (charge: number) => {
+    const car = newCar();
+    car.ersCharge = charge;
+    run(car, 12, controls({ throttle: 1 }));
+    return car;
+  };
+  const charged = at(GZ26.ersCapacity);
+  const flat = at(0);
+  assert.ok(charged.speedKmh > flat.speedKmh + 5, `charged ${charged.speedKmh.toFixed(1)} vs flat ${flat.speedKmh.toFixed(1)} km/h`);
+  assert.ok(charged.ersCharge < GZ26.ersCapacity, 'deploying should drain the battery');
+
+  const before = flat.ersCharge;
+  run(flat, 3, controls({ brake: 0.8 }));
+  assert.ok(flat.ersCharge > before + 1e5, `harvested ${(flat.ersCharge - before).toFixed(0)} J`);
+});
+
 test('braking closes the DRS flap', () => {
   const car = newCar();
   run(car, 5, controls({ throttle: 1 }));

@@ -22,6 +22,11 @@ export interface CarSpec {
   cdA: number;
   rollingResistance: number;
 
+  /** Hybrid system: electric motor power (W), battery capacity (J) and how fast braking can recharge it (W). */
+  ersPower: number;
+  ersCapacity: number;
+  ersHarvest: number;
+
   /** Engine torque in Nm at full throttle, as [rpm, Nm] pairs. */
   torqueCurve: readonly (readonly [number, number])[];
   idleRpm: number;
@@ -80,15 +85,20 @@ export const GZ26: CarSpec = {
   cdA: 1.3,
   rollingResistance: 0.012,
 
+  // 120 kW electric on top of a ~660 kW combustion engine: about 780 kW together while the battery lasts.
+  ersPower: 120000,
+  ersCapacity: 4e6,
+  ersHarvest: 120000,
+
   torqueCurve: [
-    [4000, 360],
-    [6000, 450],
-    [8000, 545],
-    [10000, 620],
-    [11000, 635],
-    [12000, 600],
-    [12500, 570],
-    [13000, 520],
+    [4000, 317],
+    [6000, 396],
+    [8000, 480],
+    [10000, 546],
+    [11000, 559],
+    [12000, 528],
+    [12500, 502],
+    [13000, 458],
   ],
   idleRpm: 4000,
   launchRpm: 8500,
