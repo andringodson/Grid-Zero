@@ -1,4 +1,5 @@
 import './ui/hud.css';
+import { CarAudio } from './audio/CarAudio.ts';
 import { Game } from './game/Game.ts';
 import { LapTimer } from './game/LapTimer.ts';
 import { loadBestLap, saveBestLap } from './game/storage.ts';
@@ -14,6 +15,10 @@ const input = new Input();
 const track = new Track(HALDEN_RING);
 const timer = new LapTimer(track.length, track.sectorStarts, loadBestLap(track.id));
 const hud = new Hud(document.body, track);
+const audio = new CarAudio();
+// Browsers only allow sound after the player interacts with the page.
+const unlockAudio = () => void audio.resume();
+for (const type of ['keydown', 'pointerdown', 'touchend'] as const) window.addEventListener(type, unlockAudio);
 
 const game = new Game({
   container,
@@ -30,6 +35,7 @@ const game = new Game({
       for (const e of events) if (e.type === 'lap' && e.personalBest) saveBestLap(track.id, e.record);
     }
     hud.update(info.dt, g.car, timer, g.world.projection.s);
+    audio.update(g.car, info.dt, info.kerb, info.impact);
   },
 });
 game.start();
