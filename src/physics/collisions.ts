@@ -12,6 +12,9 @@ export interface Contact {
   b: Car;
   /** Closing speed along the contact normal, m/s. */
   speed: number;
+  /** Contact point in world coordinates. */
+  x: number;
+  z: number;
 }
 
 function discs(car: Car): [number, number][] {
@@ -95,7 +98,7 @@ export function resolveCollisions(cars: readonly Car[]): Contact[] {
       };
       spin(a, -J * nx, -J * nz);
       spin(b, J * nx, J * nz);
-      contacts.push({ a, b, speed: closing });
+      contacts.push({ a, b, speed: closing, x: px, z: pz });
     }
   }
   return contacts;

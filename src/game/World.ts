@@ -1,4 +1,9 @@
 import type { Car, SurfaceProbe, WheelSurface } from '../physics/Car.ts';
+
+const smoothstep = (a: number, b: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
 import type { Track, TrackProjection } from '../track/Track.ts';
 
 const SURFACES: Record<WheelSurface['kind'], WheelSurface> = {
@@ -13,13 +18,21 @@ const CAR_HALF_WIDTH = 1.0;
 export interface StepResult {
   /** Speed into the barrier in m/s, 0 if there was no contact. */
   impact: number;
+  /** How square-on the hit was: 1 nose-first, 0 a glancing scrape along the wall. */
+  frontal: number;
 }
+
+/** The racing line is rubbered in and grips a little better; off it, marbles and dust grip a little worse. */
+const LINE_GRIP_BONUS = 0.02;
+const MARBLES_GRIP_LOSS = 0.03;
 
 /** Puts a car on a track: surfaces under its wheels, barrier contact, and returning it to the circuit. */
 export class World {
   readonly track: Track;
   private wheelHints = [-1, -1, -1, -1];
   private centreHint = -1;
+  private line: Float64Array | null = null;
+  private readonly asphalt: WheelSurface[] = [0, 1, 2, 3].map(() => ({ ...SURFACES.track }));
   projection: TrackProjection;
 
   constructor(track: Track, car: Car) {
@@ -27,10 +40,22 @@ export class World {
     this.projection = track.project(car.x, car.z);
   }
 
+  /** Racing-line offsets per track sample; asphalt grip then varies with distance from the line. */
+  setRacingLine(offset: Float64Array): void {
+    this.line = offset;
+  }
+
   readonly probe: SurfaceProbe = (x, z, wheel) => {
     const p = this.track.project(x, z, this.wheelHints[wheel]);
     this.wheelHints[wheel] = p.index;
-    return SURFACES[this.track.surfaceAt(p)];
+    const kind = this.track.surfaceAt(p);
+    if (kind !== 'track' || !this.line) return SURFACES[kind];
+    const off = Math.abs(p.lateral - this.line[p.index]);
+    const onLine = 1 - smoothstep(1.5, 4.5, off);
+    const marbles = smoothstep(4, 8, off);
+    const surface = this.asphalt[wheel];
+    surface.grip = 1 + LINE_GRIP_BONUS * onLine - MARBLES_GRIP_LOSS * marbles;
+    return surface;
   };
 
   /** Runs after each physics step: keeps the car inside the barriers. */
@@ -40,7 +65,7 @@ export class World {
     this.projection = p;
     const limit = this.track.barrierAt(p) - CAR_HALF_WIDTH;
     const excess = Math.abs(p.lateral) - limit;
-    if (excess <= 0) return { impact: 0 };
+    if (excess <= 0) return { impact: 0, frontal: 0 };
 
     // Outward normal: toward the barrier the car is touching.
     const side = Math.sign(p.lateral);
@@ -54,7 +79,8 @@ export class World {
     let vx = car.u * c - car.v * s;
     let vz = car.u * s + car.v * c;
     const vn = vx * nx + vz * nz;
-    if (vn <= 0) return { impact: 0 };
+    if (vn <= 0) return { impact: 0, frontal: 0 };
+    const frontal = Math.max(0, c * nx + s * nz);
 
     // Lose the speed into the wall (with a small bounce) and some of the speed along it, scaled by how hard the hit was.
     vx -= 1.25 * vn * nx;
@@ -65,7 +91,7 @@ export class World {
     car.u = vx * c + vz * s;
     car.v = -vx * s + vz * c;
     car.r *= 0.5;
-    return { impact: vn };
+    return { impact: vn, frontal };
   }
 
   /** Puts the car back on the centreline at its current position along the lap, stopped and facing the right way. */
