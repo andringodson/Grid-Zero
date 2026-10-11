@@ -64,6 +64,8 @@ export class Car {
   throttle = 0;
   brake = 0;
   limiter = false;
+  /** Rear-wing flap open (DRS): less drag and less rear downforce. Set by race control; closes on braking. */
+  drsOpen = false;
 
   /** 0..1 indicators for audio, HUD and effects. */
   wheelSpin = 0;
