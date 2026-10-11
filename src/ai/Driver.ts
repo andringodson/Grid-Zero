@@ -20,6 +20,12 @@ export class Driver {
   private readonly line: RacingLine;
   private hint = -1;
   projection: TrackProjection | null = null;
+  /** Sideways offset from the racing line the driver is moving toward, set by traffic planning. */
+  laneTarget = 0;
+  /** Current offset; follows laneTarget at a steady sideways rate. */
+  lane = 0;
+  /** Speed limit from traffic, e.g. sitting behind a car it can't pass. */
+  speedCap = Infinity;
 
   constructor(track: Track, line: RacingLine, skill: DriverSkill) {
     this.track = track;
@@ -34,7 +40,9 @@ export class Driver {
     const i = Math.floor(f) % t.count;
     const j = t.wrap(i + 1);
     const u = f - Math.floor(f);
-    const off = (this.line.offset[i] * (1 - u) + this.line.offset[j] * u + lane);
+    // Leaving the line costs most in slow corners, so moves off it shrink there.
+    const cornerFactor = clamp((this.line.speed[i] - 35) / 30, 0.25, 1);
+    const off = this.line.offset[i] * (1 - u) + this.line.offset[j] * u + lane * cornerFactor;
     const limit = t.halfWidth - 1.2;
     const o = clamp(off, -limit, limit);
     const cx = t.xs[i] + (t.xs[j] - t.xs[i]) * u;
@@ -51,18 +59,25 @@ export class Driver {
       const i = Math.floor(t.wrapS(s + d) / t.spacing) % t.count;
       v = Math.min(v, this.line.speed[i]);
     }
-    return v * this.skill.pace;
+    return Math.min(v * this.skill.pace, this.speedCap);
   }
 
-  drive(car: Car): CarControls {
+  /** Racing-line offset at a sample, for traffic planning. */
+  lineOffsetAt(index: number): number {
+    return this.line.offset[index];
+  }
+
+  drive(car: Car, dt = 1 / 240): CarControls {
     const p = this.track.project(car.x, car.z, this.hint);
     this.hint = p.index;
     this.projection = p;
     const speed = Math.abs(car.u);
+    const step = 1.6 * dt;
+    this.lane += clamp(this.laneTarget - this.lane, -step, step);
 
     // Pure pursuit: steer along the arc that reaches a point on the line ahead.
     const lookahead = 7 + speed * 0.32;
-    const [tx, tz] = this.target(p.s, lookahead, this.skill.laneOffset);
+    const [tx, tz] = this.target(p.s, lookahead, this.skill.laneOffset + this.lane);
     const alpha = wrapAngle(Math.atan2(tz - car.z, tx - car.x) - car.yaw);
     const L = car.spec.wheelbase;
     const wheelAngle = Math.atan2(2 * L * Math.sin(alpha), lookahead);
