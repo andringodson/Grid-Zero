@@ -19,7 +19,7 @@ const HILL_FAR = 30;
 const HILL_FAR_DISTANCE = 600;
 
 /** Mesh vertex spacing per tier: the heightfield is shared, only the mesh is coarser on weaker devices. */
-const MESH_STEP: Record<QualitySettings['tier'], number> = { low: 18, medium: 12, high: 9, ultra: 6 };
+const MESH_STEP: Record<QualitySettings['tier'], number> = { low: 18, medium: 14, high: 9, ultra: 6 };
 
 const smoothstep = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));

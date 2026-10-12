@@ -40,7 +40,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
   },
   high: {
     tier: 'high',
-    maxPixelRatio: 2,
+    maxPixelRatio: 1.5,
     antialias: true,
     shadows: true,
     shadowMapSize: 2048,
@@ -52,7 +52,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
   },
   ultra: {
     tier: 'ultra',
-    maxPixelRatio: 2.5,
+    maxPixelRatio: 2,
     antialias: true,
     shadows: true,
     shadowMapSize: 4096,

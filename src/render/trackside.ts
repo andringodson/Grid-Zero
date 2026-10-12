@@ -100,8 +100,12 @@ function runoff(track: Track, q: QualitySettings): THREE.Group {
   return group;
 }
 
-/** Stacks of three tyres in front of the barrier wherever there is run-off: the corners cars can reach. */
-function tyreWalls(track: Track, q: QualitySettings): THREE.InstancedMesh {
+/**
+ * Stacks of three tyres in front of the barrier wherever there is run-off: the corners cars can reach. Split into
+ * tiles so stacks out of view are culled; they only cast shadows on high and ultra, since against the barrier the
+ * shadow barely shows.
+ */
+function tyreWalls(track: Track, q: QualitySettings): THREE.Group {
   const spots: THREE.Vector3[] = [];
   for (const side of [-1, 1]) {
     const s = sideOf(track, side);
@@ -112,16 +116,29 @@ function tyreWalls(track: Track, q: QualitySettings): THREE.InstancedMesh {
       spots.push(new THREE.Vector3(p.x, p.y + GROUND_Y, p.z));
     }
   }
-  const geo = new THREE.CylinderGeometry(TYRE_RADIUS, TYRE_RADIUS, 0.72, 10, 1, true);
+  const geo = new THREE.CylinderGeometry(TYRE_RADIUS, TYRE_RADIUS, 0.72, 8, 1, true);
   geo.translate(0, 0.36, 0);
   const tex = tyreStackTexture();
   tex.repeat.set(3, 1);
-  const mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85, side: THREE.DoubleSide }), spots.length);
+  const material = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85, side: THREE.DoubleSide });
+  const group = new THREE.Group();
+  const tiles = new Map<string, THREE.Vector3[]>();
+  for (const p of spots) {
+    const key = `${Math.floor(p.x / 250)},${Math.floor(p.z / 250)}`;
+    const tile = tiles.get(key);
+    if (tile) tile.push(p);
+    else tiles.set(key, [p]);
+  }
   const m = new THREE.Matrix4();
-  spots.forEach((p, k) => mesh.setMatrixAt(k, m.makeTranslation(p.x, p.y, p.z)));
-  mesh.castShadow = q.shadows;
-  mesh.receiveShadow = true;
-  return mesh;
+  for (const tile of tiles.values()) {
+    const mesh = new THREE.InstancedMesh(geo, material, tile.length);
+    tile.forEach((p, k) => mesh.setMatrixAt(k, m.makeTranslation(p.x, p.y, p.z)));
+    mesh.computeBoundingSphere();
+    mesh.castShadow = q.shadows && (q.tier === 'high' || q.tier === 'ultra');
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  return group;
 }
 
 /**

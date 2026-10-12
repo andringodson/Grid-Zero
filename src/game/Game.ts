@@ -76,6 +76,14 @@ export class Game {
   private readonly input: Input;
   private readonly onFrame?: GameOptions['onFrame'];
   private accumulator = 0;
+  private readonly basePixelRatio: number;
+  private container!: HTMLElement;
+  /** Current render resolution as a fraction of the tier's pixel ratio. */
+  renderScale = 1;
+  private avgFrame = 0;
+  private adaptClock = 0;
+  private adaptPaused = 0;
+  private lastAdapt: { frame: number; scale: number } | null = null;
   private lastTime = -1;
   private running = false;
 
@@ -86,7 +94,8 @@ export class Game {
     const q = o.quality;
 
     this.renderer = new THREE.WebGLRenderer({ antialias: q.antialias, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.maxPixelRatio));
+    this.basePixelRatio = Math.min(window.devicePixelRatio, q.maxPixelRatio);
+    this.renderer.setPixelRatio(this.basePixelRatio);
     this.renderer.setSize(o.container.clientWidth, o.container.clientHeight);
     // Neutral keeps the sky's blue; ACES desaturated it to grey.
     this.renderer.toneMapping = THREE.NeutralToneMapping;
@@ -148,10 +157,14 @@ export class Game {
       this.speedBlur = createSpeedBlurPass();
       this.composer.addPass(this.speedBlur);
       this.composer.addPass(new OutputPass());
+      // Size the chain in CSS pixels times the pixel ratio, so later resizes and resolution changes keep it sharp.
+      this.composer.setPixelRatio(pr);
+      this.composer.setSize(o.container.clientWidth, o.container.clientHeight);
     } else {
       this.composer = null;
     }
 
+    this.container = o.container;
     window.addEventListener('resize', () => this.resize(o.container));
   }
 
@@ -236,9 +249,47 @@ export class Game {
     this.rig.camera.updateProjectionMatrix();
   }
 
+  /**
+   * Dynamic resolution: if frames take longer than the 60 fps budget, render at a lower resolution (down to 60%) and
+   * climb back when there is headroom. If dropping resolution doesn't speed frames up, the device is limited by
+   * something else (often a 30 fps battery-saver cap), so full resolution is restored and adapting pauses.
+   */
+  private adaptResolution(dt: number): void {
+    if (dt <= 0 || dt >= MAX_FRAME) return;
+    this.avgFrame = this.avgFrame === 0 ? dt : this.avgFrame * 0.95 + dt * 0.05;
+    this.adaptClock += dt;
+    if (this.adaptClock < 1.5) return;
+    this.adaptClock = 0;
+    if (this.adaptPaused > 0) {
+      this.adaptPaused -= 1.5;
+      return;
+    }
+    const budget = 1 / 60;
+    let next = this.renderScale;
+    if (this.lastAdapt !== null && this.avgFrame > this.lastAdapt.frame * 0.97 && this.renderScale < this.lastAdapt.scale) {
+      // The last cut didn't help: not resolution-bound. Restore and leave it alone for a while.
+      next = 1;
+      this.adaptPaused = 20;
+      this.lastAdapt = null;
+    } else if (this.avgFrame > budget * 1.12 && this.renderScale > 0.6) {
+      this.lastAdapt = { frame: this.avgFrame, scale: this.renderScale };
+      next = Math.max(0.6, this.renderScale - 0.1);
+    } else if (this.avgFrame < budget * 1.02 && this.renderScale < 1) {
+      this.lastAdapt = null;
+      next = Math.min(1, this.renderScale + 0.05);
+    }
+    if (next === this.renderScale) return;
+    this.renderScale = next;
+    const pr = this.basePixelRatio * next;
+    this.renderer.setPixelRatio(pr);
+    this.composer?.setPixelRatio(pr);
+    this.resize(this.container);
+  }
+
   private frame(now: number): void {
     const dt = this.lastTime < 0 ? 0 : Math.min(MAX_FRAME, now - this.lastTime);
     this.lastTime = now;
+    if (!this.paused) this.adaptResolution(dt);
     const input = this.input.poll(dt);
     if (input.camera && !this.paused) this.rig.next();
     if (input.reset && !this.paused) this.resetCar();

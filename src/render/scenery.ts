@@ -179,6 +179,9 @@ function roughen(geo: THREE.BufferGeometry, amount: number, seed: number): THREE
   return geo;
 }
 
+/** Trees are grouped into tiles this size, so whole tiles can be culled. */
+const TREE_TILE = 400;
+
 /** Instanced conifers and broadleaf trees, kept well clear of the barriers and the paddock. */
 function trees(track: Track, q: QualitySettings, groundAt: (x: number, z: number) => number): THREE.Group {
   const group = new THREE.Group();
@@ -212,7 +215,7 @@ function trees(track: Track, q: QualitySettings, groundAt: (x: number, z: number
     spots.push({ x, y: groundAt(x, z) - 0.3, z, scale: 0.7 + rand() * 0.7, kind: rand() < 0.55 ? 0 : 1 });
   }
 
-  const trunkGeo = new THREE.CylinderGeometry(0.22, 0.42, 4, 7);
+  const trunkGeo = new THREE.CylinderGeometry(0.22, 0.42, 4, 6);
   trunkGeo.translate(0, 2, 0);
   // Conifer: five drooping tiers, each edge broken up into branch tips.
   const pineGeo = roughen(
@@ -223,7 +226,7 @@ function trees(track: Track, q: QualitySettings, groundAt: (x: number, z: number
         [2.3, 3.6, 8.9],
         [1.7, 3.2, 10.8],
         [1.0, 2.8, 12.6],
-      ].map(([r, h, y]) => new THREE.ConeGeometry(r, h, 14, 2).translate(0, y, 0)),
+      ].map(([r, h, y]) => new THREE.ConeGeometry(r, h, 10, 1).translate(0, y, 0)),
     )!,
     0.22,
     7,
@@ -237,7 +240,7 @@ function trees(track: Track, q: QualitySettings, groundAt: (x: number, z: number
         [-1.6, 6.9, -0.9, 2.6],
         [0.3, 6.4, 2.0, 2.3],
         [-0.4, 9.0, -0.3, 2.4],
-      ].map(([x, y, z, r]) => new THREE.IcosahedronGeometry(r, 2).translate(x, y, z)),
+      ].map(([x, y, z, r]) => new THREE.IcosahedronGeometry(r, 1).translate(x, y, z)),
     )!,
     0.28,
     11,
@@ -246,38 +249,44 @@ function trees(track: Track, q: QualitySettings, groundAt: (x: number, z: number
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3626, roughness: 0.95 });
   const leafMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 });
 
-  const make = (geo: THREE.BufferGeometry, mat: THREE.Material, list: Spot[]) => {
-    const mesh = new THREE.InstancedMesh(geo, mat, list.length);
-    mesh.castShadow = q.shadows;
-    mesh.receiveShadow = true;
-    return mesh;
-  };
-  const pines = spots.filter((s) => s.kind === 0);
-  const broads = spots.filter((s) => s.kind === 1);
-  const trunks = make(trunkGeo, trunkMat, spots);
-  const pineMesh = make(pineGeo, leafMat, pines);
-  const broadMesh = make(broadGeo, leafMat, broads);
-
+  // The forest is split into tiles, each its own instanced meshes with a bounding sphere, so tiles outside the
+  // view (and outside the small shadow area around the car) are skipped instead of drawing every tree twice.
+  const tiles = new Map<string, Spot[]>();
+  for (const s of spots) {
+    const key = `${Math.floor(s.x / TREE_TILE)},${Math.floor(s.z / TREE_TILE)}`;
+    const tile = tiles.get(key);
+    if (tile) tile.push(s);
+    else tiles.set(key, [s]);
+  }
   const m = new THREE.Matrix4();
   const quat = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
+  const position = new THREE.Vector3();
+  const scale = new THREE.Vector3();
   const colour = new THREE.Color();
-  spots.forEach((s, idx) => {
-    quat.setFromAxisAngle(up, rand() * Math.PI * 2);
-    m.compose(new THREE.Vector3(s.x, s.y, s.z), quat, new THREE.Vector3(s.scale, s.scale, s.scale));
-    trunks.setMatrixAt(idx, m);
-  });
-  const place = (mesh: THREE.InstancedMesh, list: Spot[], hue: number) => {
+  const instanced = (geo: THREE.BufferGeometry, mat: THREE.Material, list: Spot[], hue: number | null) => {
+    const mesh = new THREE.InstancedMesh(geo, mat, list.length);
     list.forEach((s, idx) => {
       quat.setFromAxisAngle(up, rand() * Math.PI * 2);
-      m.compose(new THREE.Vector3(s.x, s.y, s.z), quat, new THREE.Vector3(s.scale, s.scale * (0.9 + rand() * 0.3), s.scale));
+      const stretch = hue === null ? 1 : 0.9 + rand() * 0.3;
+      m.compose(position.set(s.x, s.y, s.z), quat, scale.set(s.scale, s.scale * stretch, s.scale));
       mesh.setMatrixAt(idx, m);
-      colour.setHSL(hue + (rand() - 0.5) * 0.05, 0.45 + rand() * 0.15, 0.17 + rand() * 0.08);
-      mesh.setColorAt(idx, colour);
+      if (hue !== null) {
+        colour.setHSL(hue + (rand() - 0.5) * 0.05, 0.45 + rand() * 0.15, 0.17 + rand() * 0.08);
+        mesh.setColorAt(idx, colour);
+      }
     });
+    mesh.computeBoundingSphere();
+    mesh.castShadow = q.shadows;
+    mesh.receiveShadow = true;
+    group.add(mesh);
   };
-  place(pineMesh, pines, 0.33);
-  place(broadMesh, broads, 0.25);
-  group.add(trunks, pineMesh, broadMesh);
+  for (const tile of tiles.values()) {
+    instanced(trunkGeo, trunkMat, tile, null);
+    const pines = tile.filter((s) => s.kind === 0);
+    const broads = tile.filter((s) => s.kind === 1);
+    if (pines.length) instanced(pineGeo, leafMat, pines, 0.33);
+    if (broads.length) instanced(broadGeo, leafMat, broads, 0.25);
+  }
   return group;
 }
