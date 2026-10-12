@@ -451,8 +451,9 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean): C
   return {
     root,
     update(c: Car, dt = 0) {
-      root.position.set(c.x, 0, c.z);
-      root.rotation.y = -c.yaw;
+      // On the ground under the car, pitched and rolled with the slope. Yaw first, then pitch, then roll.
+      root.position.set(c.x, c.y, c.z);
+      root.rotation.set(-c.roll, -c.yaw, c.pitch, 'YZX');
       // Body pitches under braking and acceleration and rolls toward the outside of a corner.
       body.rotation.z = THREE.MathUtils.clamp(c.gLong * 0.004, -0.03, 0.02);
       body.rotation.x = THREE.MathUtils.clamp(-c.gLat * 0.003, -0.02, 0.02);

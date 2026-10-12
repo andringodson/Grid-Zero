@@ -111,7 +111,7 @@ export class OpponentAudio {
       v.filter.frequency.setTargetAtTime(500 + car.throttle * 4000 + car.rpm * 0.25, t, 0.03);
       v.gain.gain.setTargetAtTime(0.18 + 0.32 * car.throttle, t, 0.05);
       v.panner.positionX.setTargetAtTime(car.x, t, 0.02);
-      v.panner.positionY.setTargetAtTime(0.6, t, 0.02);
+      v.panner.positionY.setTargetAtTime(car.y + 0.6, t, 0.02);
       v.panner.positionZ.setTargetAtTime(car.z, t, 0.02);
     }
   }

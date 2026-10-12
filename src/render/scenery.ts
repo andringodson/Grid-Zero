@@ -9,14 +9,15 @@ import { GROUND_Y } from './trackMesh.ts';
 /** Rotation about Y that points an object's local +x along a track heading. */
 const alongTrack = (heading: number) => -heading;
 
-export function buildScenery(track: Track, q: QualitySettings): THREE.Group {
+/** `groundAt` gives the terrain height anywhere, for placing things that stand on the land. */
+export function buildScenery(track: Track, q: QualitySettings, groundAt: (x: number, z: number) => number): THREE.Group {
   const group = new THREE.Group();
   group.name = 'scenery';
   group.add(grandstands(track, q));
   group.add(pitBuilding(track, q));
   group.add(brakingBoards(track));
-  group.add(trees(track, q));
-  group.add(hills(track));
+  group.add(trees(track, q, groundAt));
+  group.add(hills(track, groundAt));
   return group;
 }
 
@@ -66,7 +67,7 @@ function grandstands(track: Track, q: QualitySettings): THREE.Group {
       pillar.position.set(px, (height + 4.2) / 2, -depth + 0.5);
       stand.add(pillar);
     }
-    stand.position.set(p.x, GROUND_Y, p.z);
+    stand.position.set(p.x, p.y + GROUND_Y, p.z);
     // Local +z must point at the track (to the right of the stand's +x, which runs with the track).
     stand.rotation.y = alongTrack(p.heading);
     group.add(stand);
@@ -108,7 +109,7 @@ function pitBuilding(track: Track, q: QualitySettings): THREE.Group {
     m.receiveShadow = true;
     group.add(m);
   }
-  group.position.set(p.x, GROUND_Y, p.z);
+  group.position.set(p.x, p.y + GROUND_Y, p.z);
   // Local -z faces the track, which is on the building's left.
   group.rotation.y = alongTrack(p.heading);
   return group;
@@ -146,9 +147,9 @@ function brakingBoards(track: Track): THREE.Group {
       const lateral = outside * (track.halfWidth + track.kerbWidth + 3);
       const p = track.pointAt(s, lateral);
       const post = new THREE.Mesh(postGeo, postMat);
-      post.position.set(p.x, GROUND_Y + 0.8, p.z);
+      post.position.set(p.x, p.y + GROUND_Y + 0.8, p.z);
       const board = new THREE.Mesh(boardGeo, matFor(String(d)));
-      board.position.set(p.x, GROUND_Y + 1.9, p.z);
+      board.position.set(p.x, p.y + GROUND_Y + 1.9, p.z);
       // Face oncoming cars.
       board.rotation.y = Math.atan2(-Math.cos(p.heading), -Math.sin(p.heading));
       board.castShadow = true;
@@ -159,7 +160,7 @@ function brakingBoards(track: Track): THREE.Group {
 }
 
 /** Instanced conifers and broadleaf trees, kept well clear of the barriers and the paddock. */
-function trees(track: Track, q: QualitySettings): THREE.Group {
+function trees(track: Track, q: QualitySettings, groundAt: (x: number, z: number) => number): THREE.Group {
   const group = new THREE.Group();
   const rand = seededRandom(91);
 
@@ -175,7 +176,7 @@ function trees(track: Track, q: QualitySettings): THREE.Group {
   }
   const margin = 700;
 
-  type Spot = { x: number; z: number; scale: number; kind: number };
+  type Spot = { x: number; y: number; z: number; scale: number; kind: number };
   const spots: Spot[] = [];
   let attempts = 0;
   while (spots.length < q.trees && attempts < q.trees * 6) {
@@ -187,7 +188,8 @@ function trees(track: Track, q: QualitySettings): THREE.Group {
     // Keep the main straight open for the stands and pit building.
     const nearStraight = p.s < 520 || p.s > track.length - 420;
     if (nearStraight && Math.abs(p.lateral) < 110) continue;
-    spots.push({ x, z, scale: 0.7 + rand() * 0.7, kind: rand() < 0.55 ? 0 : 1 });
+    // Sunk a little so trunks never float on a slope.
+    spots.push({ x, y: groundAt(x, z) - 0.3, z, scale: 0.7 + rand() * 0.7, kind: rand() < 0.55 ? 0 : 1 });
   }
 
   const trunkGeo = new THREE.CylinderGeometry(0.25, 0.4, 4, 6);
@@ -222,13 +224,13 @@ function trees(track: Track, q: QualitySettings): THREE.Group {
   const colour = new THREE.Color();
   spots.forEach((s, idx) => {
     quat.setFromAxisAngle(up, rand() * Math.PI * 2);
-    m.compose(new THREE.Vector3(s.x, GROUND_Y, s.z), quat, new THREE.Vector3(s.scale, s.scale, s.scale));
+    m.compose(new THREE.Vector3(s.x, s.y, s.z), quat, new THREE.Vector3(s.scale, s.scale, s.scale));
     trunks.setMatrixAt(idx, m);
   });
   const place = (mesh: THREE.InstancedMesh, list: Spot[], hue: number) => {
     list.forEach((s, idx) => {
       quat.setFromAxisAngle(up, rand() * Math.PI * 2);
-      m.compose(new THREE.Vector3(s.x, GROUND_Y, s.z), quat, new THREE.Vector3(s.scale, s.scale * (0.9 + rand() * 0.3), s.scale));
+      m.compose(new THREE.Vector3(s.x, s.y, s.z), quat, new THREE.Vector3(s.scale, s.scale * (0.9 + rand() * 0.3), s.scale));
       mesh.setMatrixAt(idx, m);
       colour.setHSL(hue + (rand() - 0.5) * 0.05, 0.45 + rand() * 0.15, 0.17 + rand() * 0.08);
       mesh.setColorAt(idx, colour);
@@ -241,7 +243,7 @@ function trees(track: Track, q: QualitySettings): THREE.Group {
 }
 
 /** A ring of distant hills, softened by haze, so the horizon isn't a flat edge. */
-function hills(track: Track): THREE.Group {
+function hills(track: Track, groundAt: (x: number, z: number) => number): THREE.Group {
   const group = new THREE.Group();
   const rand = seededRandom(101);
   let cx = 0;
@@ -258,7 +260,9 @@ function hills(track: Track): THREE.Group {
     const dist = 2600 + rand() * 700;
     const radius = 350 + rand() * 450;
     const hill = new THREE.Mesh(new THREE.ConeGeometry(radius, 120 + rand() * 260, 7, 1), mat);
-    hill.position.set(cx + Math.cos(angle) * dist, GROUND_Y, cz + Math.sin(angle) * dist);
+    const hx = cx + Math.cos(angle) * dist;
+    const hz = cz + Math.sin(angle) * dist;
+    hill.position.set(hx, groundAt(hx, hz), hz);
     hill.rotation.y = rand() * Math.PI;
     group.add(hill);
   }

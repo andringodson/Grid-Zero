@@ -65,10 +65,12 @@ interface Trail {
   lz: number;
   rx: number;
   rz: number;
+  /** Ground height at the last end written. */
+  y: number;
   alpha: number;
 }
 
-const newTrail = (): Trail => ({ active: false, kind: 0, x: 0, z: 0, lx: 0, lz: 0, rx: 0, rz: 0, alpha: 0 });
+const newTrail = (): Trail => ({ active: false, kind: 0, x: 0, z: 0, lx: 0, lz: 0, rx: 0, rz: 0, y: 0, alpha: 0 });
 
 /**
  * Tyre marks laid under every car: black rubber where a tyre locks, spins or slides on asphalt, and torn brown turf
@@ -147,6 +149,8 @@ export class SkidMarks {
   private updateWheel(car: Car, w: number, t: Trail): void {
     const x = wheelX(car, w);
     const z = wheelZ(car, w);
+    const [fwd, right] = car.wheelOffsets[w];
+    const ground = car.groundY(fwd, right);
     const surface = car.wheelSurface[w];
     const speed = car.speed;
 
@@ -188,9 +192,10 @@ export class SkidMarks {
     const rz = z + mx * half;
 
     if (t.active) {
-      this.writeSegment(t, lx, lz, rx, rz, kind, alpha);
+      this.writeSegment(t, lx, lz, rx, rz, ground, kind, alpha);
     }
     t.active = true;
+    t.y = ground;
     t.kind = kind;
     t.x = x;
     t.z = z;
@@ -201,24 +206,27 @@ export class SkidMarks {
     t.alpha = alpha;
   }
 
-  private writeSegment(t: Trail, lx: number, lz: number, rx: number, rz: number, kind: number, alpha: number): void {
+  private writeSegment(t: Trail, lx: number, lz: number, rx: number, rz: number, ground: number, kind: number, alpha: number): void {
     const slot = this.written % this.capacity;
     const seq = this.written;
     this.written++;
-    const y = kind === 1 ? GRASS_Y : ASPHALT_Y;
+    // Just above the surface under each end of the segment.
+    const lift = kind === 1 ? GRASS_Y : ASPHALT_Y;
+    const y0 = t.y + lift;
+    const y1 = ground + lift;
     const p = this.positions.array as Float32Array;
     const o = slot * 12;
     p[o] = t.lx;
-    p[o + 1] = y;
+    p[o + 1] = y0;
     p[o + 2] = t.lz;
     p[o + 3] = t.rx;
-    p[o + 4] = y;
+    p[o + 4] = y0;
     p[o + 5] = t.rz;
     p[o + 6] = lx;
-    p[o + 7] = y;
+    p[o + 7] = y1;
     p[o + 8] = lz;
     p[o + 9] = rx;
-    p[o + 10] = y;
+    p[o + 10] = y1;
     p[o + 11] = rz;
     // A little variation along the mark, as a real tyre lays rubber unevenly.
     const a = alpha * (0.85 + 0.15 * Math.sin(seq * 2.399));

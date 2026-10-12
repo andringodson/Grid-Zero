@@ -17,6 +17,7 @@ import { buildTrackside, type Trackside } from '../render/trackside.ts';
 import { createEnvironment, type Environment } from '../render/environment.ts';
 import type { QualitySettings } from '../render/quality.ts';
 import { buildScenery } from '../render/scenery.ts';
+import { Terrain } from '../render/terrain.ts';
 import { buildTrackMeshes } from '../render/trackMesh.ts';
 import type { Track } from '../track/Track.ts';
 import { Field, type FieldCar } from './Field.ts';
@@ -70,6 +71,7 @@ export class Game {
   private speedBlur: ReturnType<typeof createSpeedBlurPass> | null = null;
   private readonly skids: SkidMarks;
   private readonly trackside: Trackside;
+  readonly terrain: Terrain;
   private readonly particles: Particles;
   private readonly input: Input;
   private readonly onFrame?: GameOptions['onFrame'];
@@ -103,7 +105,18 @@ export class Game {
     this.field = new Field(o.track, computeRacingLine(o.track, GZ26));
     // The racing line tells the track where to lay rubber down.
     this.scene.add(buildTrackMeshes(o.track, q, this.field.line));
-    this.scene.add(buildScenery(o.track, q));
+    // The land: the heightfield mesh, and a plane beyond it to the horizon.
+    this.terrain = new Terrain(o.track, q);
+    this.scene.add(this.terrain.mesh);
+    const farGeo = new THREE.PlaneGeometry(12000, 12000);
+    // Same 40 m grass repeat as the terrain.
+    const uv = farGeo.getAttribute('uv') as THREE.BufferAttribute;
+    for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) * 300, uv.getY(k) * 300);
+    const far = new THREE.Mesh(farGeo, this.terrain.mesh.material);
+    far.rotation.x = -Math.PI / 2;
+    far.position.y = this.terrain.horizonHeight - 0.5;
+    this.scene.add(far);
+    this.scene.add(buildScenery(o.track, q, (x, z) => this.terrain.heightAt(x, z)));
     this.trackside = buildTrackside(o.track, q);
     this.scene.add(this.trackside.group);
     this.skids = new SkidMarks(q);

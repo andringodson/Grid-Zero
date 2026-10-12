@@ -99,8 +99,9 @@ export function createEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Sc
       // Snap to shadow-map texels so shadow edges don't shimmer as the car moves.
       const x = Math.round(target.x / texel) * texel;
       const z = Math.round(target.z / texel) * texel;
-      sun.target.position.set(x, 0, z);
-      sun.position.set(x + sunDirection.x * 300, sunDirection.y * 300, z + sunDirection.z * 300);
+      const y = target.y;
+      sun.target.position.set(x, y, z);
+      sun.position.set(x + sunDirection.x * 300, y + sunDirection.y * 300, z + sunDirection.z * 300);
     },
     update(dt: number) {
       clouds.update(dt);

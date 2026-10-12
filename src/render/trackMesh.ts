@@ -3,7 +3,7 @@ import type { RacingLine } from '../ai/racingLine.ts';
 import { seededRandom } from '../math.ts';
 import type { Track } from '../track/Track.ts';
 import type { QualitySettings } from './quality.ts';
-import { asphaltTextures, barrierTexture, chequerTexture, grassTextures, kerbTexture } from './textures.ts';
+import { asphaltTextures, barrierTexture, chequerTexture, kerbTexture } from './textures.ts';
 
 /** Ground sits slightly below the asphalt so the two never z-fight at a distance. */
 export const GROUND_Y = -0.06;
@@ -40,8 +40,9 @@ export function ribbon(track: Track, o: RibbonOptions): THREE.BufferGeometry {
     const rz = track.tx[i];
     const a = o.from(i);
     const b = o.to(i);
-    positions.push(track.xs[i] + rx * a, o.yFrom?.(i) ?? 0, track.zs[i] + rz * a);
-    positions.push(track.xs[i] + rx * b, o.yTo?.(i) ?? 0, track.zs[i] + rz * b);
+    // Heights given are relative to the track surface, which follows the circuit's elevation and camber.
+    positions.push(track.xs[i] + rx * a, (o.yFrom?.(i) ?? 0) + track.surfaceY(i, a), track.zs[i] + rz * a);
+    positions.push(track.xs[i] + rx * b, (o.yTo?.(i) ?? 0) + track.surfaceY(i, b), track.zs[i] + rz * b);
     const v = (k * track.spacing) / o.repeatLength;
     uvs.push(0, v, 1, v);
     laterals.push(a, b);
@@ -296,30 +297,10 @@ export function buildTrackMeshes(track: Track, q: QualitySettings, line?: Racing
     // Laid flat, then turned so its long side runs across the track.
     box.rotation.set(-Math.PI / 2, 0, -g.heading);
     // The bar sits just ahead of the car's front wheels, across the slot.
-    box.position.set(g.x + Math.cos(g.heading) * 3.4, 0.003, g.z + Math.sin(g.heading) * 3.4);
+    box.position.set(g.x + Math.cos(g.heading) * 3.4, g.y + 0.003, g.z + Math.sin(g.heading) * 3.4);
     box.receiveShadow = true;
     group.add(box);
   }
-
-  // Ground.
-  const grass = grassTextures(q.textureSize, q.anisotropy);
-  const groundSize = 8000;
-  const repeat = groundSize / 40;
-  for (const t of [grass.map, grass.normalMap]) t.repeat.set(repeat, repeat);
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(groundSize, groundSize),
-    new THREE.MeshStandardMaterial({
-      map: grass.map,
-      normalMap: grass.normalMap,
-      normalScale: new THREE.Vector2(0.5, 0.5),
-      roughness: 0.95,
-      metalness: 0,
-    }),
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = GROUND_Y;
-  ground.receiveShadow = true;
-  group.add(ground);
 
   return group;
 }
@@ -342,7 +323,9 @@ function wallRibbon(track: Track, offset: (i: number) => number, height: number,
     const d = offset(i);
     const x = track.xs[i] + rx * d;
     const z = track.zs[i] + rz * d;
-    positions.push(x, GROUND_Y, z, x, height, z);
+    // From below the ground (so no gap shows on a slope) to barrier height above the run-off beside it.
+    const base = track.surfaceY(i, d);
+    positions.push(x, base - 0.6, z, x, base + height, z);
     const u = (k * track.spacing) / repeatLength;
     uvs.push(u, 0, u, 1);
   }

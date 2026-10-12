@@ -109,7 +109,7 @@ function tyreWalls(track: Track, q: QualitySettings): THREE.InstancedMesh {
       const i = Math.floor(d / track.spacing) % track.count;
       if (s.runoff[i] === 0) continue;
       const p = track.pointAt(d, side * (s.barrier[i] - TYRE_WALL_INSET));
-      spots.push(new THREE.Vector3(p.x, GROUND_Y, p.z));
+      spots.push(new THREE.Vector3(p.x, p.y + GROUND_Y, p.z));
     }
   }
   const geo = new THREE.CylinderGeometry(TYRE_RADIUS, TYRE_RADIUS, 0.72, 10, 1, true);
@@ -150,8 +150,11 @@ function strip(
     });
     const u0 = (k * track.spacing) / repeatLength;
     const u1 = ((k + 1) * track.spacing) / repeatLength;
-    positions.push(corners[0][0], y0, corners[0][1], corners[0][0], y1, corners[0][1]);
-    positions.push(corners[1][0], y0, corners[1][1], corners[1][0], y1, corners[1][1]);
+    // y0 and y1 are relative to the ground beside the track at each end.
+    const g0 = track.surfaceY(i, offset(i));
+    const g1 = track.surfaceY(j, offset(j));
+    positions.push(corners[0][0], g0 + y0, corners[0][1], corners[0][0], g0 + y1, corners[0][1]);
+    positions.push(corners[1][0], g1 + y0, corners[1][1], corners[1][0], g1 + y1, corners[1][1]);
     uvs.push(u0, 0, u0, 1, u1, 0, u1, 1);
     indices.push(n, n + 2, n + 1, n + 1, n + 2, n + 3);
     n += 4;
@@ -207,7 +210,7 @@ function fencing(track: Track, q: QualitySettings): THREE.Group {
     for (let d = 0; d < track.length; d += 4) {
       const i = Math.floor(d / track.spacing) % track.count;
       const p = track.pointAt(d, side * (s.barrier[i] + 0.12));
-      postSpots.push(new THREE.Vector3(p.x, 0, p.z));
+      postSpots.push(new THREE.Vector3(p.x, p.y, p.z));
     }
   }
   if (postSpots.length > 0) {
@@ -245,7 +248,7 @@ function adBoards(track: Track, q: QualitySettings): THREE.Mesh {
       const b = track.pointAt(d + half, lateral);
       // Text reads left to right for someone on the track looking at the board.
       const [p0, p1] = side < 0 ? [a, b] : [b, a];
-      positions.push(p0.x, 0.12, p0.z, p1.x, 0.12, p1.z, p1.x, 1.0, p1.z, p0.x, 1.0, p0.z);
+      positions.push(p0.x, p0.y + 0.12, p0.z, p1.x, p1.y + 0.12, p1.z, p1.x, p1.y + 1.0, p1.z, p0.x, p0.y + 1.0, p0.z);
       const k = brand++ % rows;
       const v0 = 1 - (k + 1) / rows;
       const v1 = 1 - k / rows;
@@ -277,7 +280,7 @@ function marshalPosts(track: Track, q: QualitySettings): THREE.Group {
     const p = track.pointAt(d, side * (barrier + 3));
     const yaw = -p.heading;
     const place = (g: THREE.BufferGeometry, dx: number, dy: number, dz: number) =>
-      g.rotateY(yaw).translate(p.x + Math.cos(p.heading) * dx - Math.sin(p.heading) * dz, GROUND_Y + dy, p.z + Math.sin(p.heading) * dx + Math.cos(p.heading) * dz);
+      g.rotateY(yaw).translate(p.x + Math.cos(p.heading) * dx - Math.sin(p.heading) * dz, p.y + GROUND_Y + dy, p.z + Math.sin(p.heading) * dx + Math.cos(p.heading) * dz);
     huts.push(place(new THREE.BoxGeometry(1.8, 2.3, 1.6), 0, 1.15, 0));
     roofs.push(place(new THREE.BoxGeometry(2.1, 0.18, 1.9), 0, 2.38, 0));
     // The marshal stands beside the hut, toward the track.
@@ -302,7 +305,7 @@ function marshalPosts(track: Track, q: QualitySettings): THREE.Group {
 function startGantry(track: Track, q: QualitySettings): { group: THREE.Group; setLit: (count: number) => void } {
   const group = new THREE.Group();
   const p = track.pointAt(0);
-  group.position.set(p.x, GROUND_Y, p.z);
+  group.position.set(p.x, p.y + GROUND_Y, p.z);
   // Local +x along the track, +z to the right.
   group.rotation.y = -p.heading;
   const steel = new THREE.MeshStandardMaterial({ color: 0x2b2e33, metalness: 0.6, roughness: 0.45 });

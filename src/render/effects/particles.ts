@@ -134,6 +134,10 @@ export class Particles {
   private readonly alpha0: Float32Array;
   private readonly kind: Uint8Array;
   private readonly spin: Float32Array;
+  /** Ground height under each particle where it was thrown up; it settles to this, not to y = 0. */
+  private readonly ground: Float32Array;
+  /** Ground height for particles about to be spawned. */
+  private spawnGround = 0;
   private readonly sunWorld: THREE.Vector3;
 
   constructor(q: QualitySettings, sunDirection: THREE.Vector3) {
@@ -166,6 +170,7 @@ export class Particles {
     this.alpha0 = new Float32Array(cap);
     this.kind = new Uint8Array(cap);
     this.spin = new Float32Array(cap);
+    this.ground = new Float32Array(cap);
 
     const material = new THREE.ShaderMaterial({
       uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { map: { value: null }, sunView: { value: new THREE.Vector3() } }]),
@@ -211,6 +216,8 @@ export class Particles {
       const surface = car.wheelSurface[w];
       const x = wheelX(car, w);
       const z = wheelZ(car, w);
+      const [fwd, right] = car.wheelOffsets[w];
+      this.spawnGround = car.groundY(fwd, right);
       if (surface === 'kerb') kerb = w % 2 === 0 ? -1 : 1;
       if (surface === 'grass' || surface === 'gravel') {
         if (!b.grass || speed < 5) continue;
@@ -230,11 +237,13 @@ export class Particles {
     if (b.sparks && kerb !== 0 && car.u > SPARK_SPEED) {
       // From the plank under the floor, on the side that's riding the kerb.
       const n = this.count;
+      this.spawnGround = car.y;
       this.spawnMany(40 * b.rate * dt, SPARK, car.x, car.z, vx, vz);
       for (let i = n; i < this.count; i++) {
         const f = (Math.random() - 0.5) * 2.4;
         const r = kerb * 0.3 + (Math.random() - 0.5) * 0.4;
-        this.pos.setXYZ(i, car.x + c * f - s * r, 0.04, car.z + s * f + c * r);
+        this.ground[i] = car.groundY(f, r);
+        this.pos.setXYZ(i, car.x + c * f - s * r, this.ground[i] + 0.04, car.z + s * f + c * r);
       }
     }
   }
@@ -254,6 +263,7 @@ export class Particles {
     this.kind[i] = kind;
     this.age[i] = 0;
     this.spin[i] = spread(1.2);
+    this.ground[i] = this.spawnGround;
     let y = 0.15;
     let ux = 0;
     let uy = 0;
@@ -297,7 +307,7 @@ export class Particles {
       this.growth[i] = 0;
       this.alpha0[i] = 1;
     }
-    this.pos.setXYZ(i, x, y, z);
+    this.pos.setXYZ(i, x, this.ground[i] + y, z);
     this.vel.setXYZ(i, ux, uy, uz);
     this.data.setXYZW(i, this.size0[i], 0, kind, r() * Math.PI * 2);
   }
@@ -331,7 +341,7 @@ export class Particles {
       p[o + 2] += v[o + 2] * dt;
       const size = this.size0[i] + this.growth[i] * age;
       // Keep billboards out of the road: a puff's lower edge would otherwise cut a hard line across the asphalt.
-      const floor = kind === SMOKE || kind === DUST ? size * 0.35 : kind === CLUMP ? GROUND_Y + size * 0.5 : 0.02;
+      const floor = this.ground[i] + (kind === SMOKE || kind === DUST ? size * 0.35 : kind === CLUMP ? GROUND_Y + size * 0.5 : 0.02);
       if (p[o + 1] < floor) {
         p[o + 1] = floor;
         if (kind === CLUMP || kind === SPARK) {
@@ -375,6 +385,7 @@ export class Particles {
     this.alpha0[i] = this.alpha0[last];
     this.kind[i] = this.kind[last];
     this.spin[i] = this.spin[last];
+    this.ground[i] = this.ground[last];
     this.pos.copyAt(i, this.pos, last);
     this.vel.copyAt(i, this.vel, last);
     this.data.copyAt(i, this.data, last);
