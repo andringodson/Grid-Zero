@@ -10,6 +10,7 @@ import { Car, type Assists } from '../physics/Car.ts';
 import { GZ26 } from '../physics/carSpec.ts';
 import { CameraRig } from '../render/cameraRig.ts';
 import { buildCarModel, type CarVisual } from '../render/carModel.ts';
+import { Particles } from '../render/effects/particles.ts';
 import { SkidMarks } from '../render/effects/skidMarks.ts';
 import { createEnvironment, type Environment } from '../render/environment.ts';
 import type { QualitySettings } from '../render/quality.ts';
@@ -65,6 +66,7 @@ export class Game {
   private readonly castShadows: boolean;
   private readonly composer: EffectComposer | null;
   private readonly skids: SkidMarks;
+  private readonly particles: Particles;
   private readonly input: Input;
   private readonly onFrame?: GameOptions['onFrame'];
   private accumulator = 0;
@@ -100,6 +102,8 @@ export class Game {
     this.scene.add(buildScenery(o.track, q));
     this.skids = new SkidMarks(q);
     this.scene.add(this.skids.mesh);
+    this.particles = new Particles(q, this.env.sunDirection);
+    this.scene.add(this.particles.mesh);
     this.player = this.field.addPlayer(PLAYER_ID, this.car, this.world);
     this.castShadows = q.shadows;
     this.visual = buildCarModel(this.car, o.team.livery, q.shadows);
@@ -224,7 +228,10 @@ export class Game {
 
     this.visual.update(this.car);
     for (const fc of this.field.cars) this.opponentVisuals.get(fc.id)?.update(fc.car);
-    if (!this.paused) this.skids.update(this.field.cars);
+    if (!this.paused) {
+      this.skids.update(this.field.cars);
+      this.particles.update(dt, this.field.cars);
+    }
     if (this.showcase) this.rig.showcase(this.car, dt);
     else this.rig.update(this.car, dt, Math.abs(this.car.u) > 5 ? kerb : 0);
     this.env.follow(this.visual.root.position);

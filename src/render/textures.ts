@@ -226,6 +226,28 @@ export function crowdTexture(): THREE.CanvasTexture {
   return finish(c, 4);
 }
 
+/** A soft, lumpy puff for smoke and dust particles: white, with the shape in the alpha channel. */
+export function puffTexture(): THREE.CanvasTexture {
+  const size = 64;
+  const noise = fractalNoise(size, 71, 3, 4);
+  const [c, ctx] = canvas(size);
+  const img = ctx.createImageData(size, size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x;
+      const r = Math.hypot(x + 0.5 - size / 2, y + 0.5 - size / 2) / (size / 2);
+      const t = Math.min(1, Math.max(0, (r - 0.25) / 0.75));
+      const falloff = 1 - t * t * (3 - 2 * t);
+      img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = 255;
+      img.data[i * 4 + 3] = falloff * (0.45 + 0.55 * noise[i]) * 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = finish(c, 1, false);
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+}
+
 /** Trackside board with a number, for the 300/200/100 m braking markers. */
 export function boardTexture(text: string): THREE.CanvasTexture {
   const [c, ctx] = canvas(128, 128);
