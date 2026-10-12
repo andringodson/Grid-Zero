@@ -17,7 +17,7 @@ import { buildTrackside, type Trackside } from '../render/trackside.ts';
 import { createEnvironment, type Environment } from '../render/environment.ts';
 import type { QualitySettings } from '../render/quality.ts';
 import { buildScenery } from '../render/scenery.ts';
-import { Terrain } from '../render/terrain.ts';
+import { GROUND_DROP, Terrain } from '../render/terrain.ts';
 import { buildTrackMeshes } from '../render/trackMesh.ts';
 import type { Track } from '../track/Track.ts';
 import { Field, type FieldCar } from './Field.ts';
@@ -185,6 +185,16 @@ export class Game {
     this.rig.snap(this.car);
   }
 
+  /**
+   * Off the asphalt, a coarse terrain mesh can sit a little above the ground the physics uses; lift the model so a
+   * car on the grass is never drawn sunk into it.
+   */
+  private keepAboveGround(car: Car, visual: CarVisual): void {
+    if (car.wheelSurface.every((k) => k === 'track' || k === 'kerb')) return;
+    const ground = this.terrain.meshHeightAt(car.x, car.z) + GROUND_DROP;
+    if (ground > visual.root.position.y) visual.root.position.y = ground;
+  }
+
   /** Puts the car back in its grid slot, stopped. */
   toGrid(slot = 0): void {
     const g = this.track.gridSlot(slot);
@@ -316,7 +326,13 @@ export class Game {
     // Game time, so brake glow and the DRS flap pause with the game.
     const visualDt = this.paused ? 0 : dt;
     this.visual.update(this.car, visualDt);
-    for (const fc of this.field.cars) this.opponentVisuals.get(fc.id)?.update(fc.car, visualDt);
+    this.keepAboveGround(this.car, this.visual);
+    for (const fc of this.field.cars) {
+      const v = this.opponentVisuals.get(fc.id);
+      if (!v) continue;
+      v.update(fc.car, visualDt);
+      this.keepAboveGround(fc.car, v);
+    }
     if (!this.paused) {
       this.skids.update(this.field.cars);
       this.particles.update(dt, this.field.cars);

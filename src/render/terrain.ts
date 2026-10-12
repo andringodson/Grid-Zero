@@ -294,6 +294,28 @@ export class Terrain {
     return this.blend[gz * this.nx + gx];
   }
 
+  /**
+   * Height of the rendered ground: the mesh's own triangles, which on coarse tiers can differ from the heightfield
+   * by a few tens of centimetres where two parts of the circuit run close together.
+   */
+  meshHeightAt(x: number, z: number): number {
+    const m = this.meshGrid;
+    const fx = (x - this.x0) / m.step;
+    const fz = (z - this.z0) / m.step;
+    const c = Math.floor(fx);
+    const r = Math.floor(fz);
+    if (c < 0 || r < 0 || c >= m.cols - 1 || r >= m.rows - 1) return this.horizonHeight;
+    const u = fx - c;
+    const v = fz - r;
+    const y = (cc: number, rr: number) => m.positions[(rr * m.cols + cc) * 3 + 1];
+    // Same diagonal as the index buffer: (a, a+cols, a+1) and (a+1, a+cols, a+cols+1).
+    if (u + v <= 1) return y(c, r) + (y(c + 1, r) - y(c, r)) * u + (y(c, r + 1) - y(c, r)) * v;
+    const e = y(c + 1, r + 1);
+    return e + (y(c, r + 1) - e) * (1 - u) + (y(c + 1, r) - e) * (1 - v);
+  }
+
+  private meshGrid!: { step: number; cols: number; rows: number; positions: Float32Array };
+
   private buildMesh(q: QualitySettings): THREE.Mesh {
     const step = MESH_STEP[q.tier];
     const w = (this.nx - 1) * CELL;
@@ -323,6 +345,7 @@ export class Terrain {
         farness[k] = this.blendAt(x, z);
       }
     }
+    this.meshGrid = { step, cols, rows, positions };
     const indices: number[] = [];
     for (let r = 0; r < rows - 1; r++) {
       for (let c = 0; c < cols - 1; c++) {
