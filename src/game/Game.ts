@@ -12,6 +12,7 @@ import { CameraRig } from '../render/cameraRig.ts';
 import { buildCarModel, type CarVisual } from '../render/carModel.ts';
 import { Particles } from '../render/effects/particles.ts';
 import { SkidMarks } from '../render/effects/skidMarks.ts';
+import { createSpeedBlurPass } from '../render/speedBlur.ts';
 import { buildTrackside, type Trackside } from '../render/trackside.ts';
 import { createEnvironment, type Environment } from '../render/environment.ts';
 import type { QualitySettings } from '../render/quality.ts';
@@ -66,6 +67,7 @@ export class Game {
   private readonly opponentVisuals = new Map<string, CarVisual>();
   private readonly castShadows: boolean;
   private readonly composer: EffectComposer | null;
+  private speedBlur: ReturnType<typeof createSpeedBlurPass> | null = null;
   private readonly skids: SkidMarks;
   private readonly trackside: Trackside;
   private readonly particles: Particles;
@@ -116,10 +118,18 @@ export class Game {
     this.rig.snap(this.car);
 
     if (q.bloom) {
-      this.composer = new EffectComposer(this.renderer);
+      // A multisampled target keeps anti-aliasing on the post-processing path; HDR so bloom sees real highlights.
+      const pr = this.renderer.getPixelRatio();
+      const target = new THREE.WebGLRenderTarget(o.container.clientWidth * pr, o.container.clientHeight * pr, {
+        type: THREE.HalfFloatType,
+        samples: q.antialias ? 4 : 0,
+      });
+      this.composer = new EffectComposer(this.renderer, target);
       this.composer.addPass(new RenderPass(this.scene, this.rig.camera));
       const size = new THREE.Vector2(o.container.clientWidth, o.container.clientHeight);
       this.composer.addPass(new UnrealBloomPass(size, 0.18, 0.4, 0.92));
+      this.speedBlur = createSpeedBlurPass();
+      this.composer.addPass(this.speedBlur);
       this.composer.addPass(new OutputPass());
     } else {
       this.composer = null;
@@ -247,6 +257,9 @@ export class Game {
     else this.rig.update(this.car, dt, Math.abs(this.car.u) > 5 ? kerb : 0);
     this.env.follow(this.visual.root.position);
     this.env.update(dt);
+    // Speed blur from about 150 km/h, never in the menus or the cockpit-free showcase.
+    const speedBlur = this.showcase || this.paused ? 0 : THREE.MathUtils.clamp((Math.abs(this.car.u) - 42) / 50, 0, 1) * 0.035;
+    this.speedBlur?.setStrength(speedBlur);
     if (this.composer) this.composer.render();
     else this.renderer.render(this.scene, this.rig.camera);
   }
