@@ -116,9 +116,12 @@ const game = new Game({
 function runRace(dt: number): void {
   if (!race) return;
   for (const e of race.update(dt, (id) => game.sOf(id))) {
-    if (e.type === 'light') hud.setLights(e.count, false);
-    else if (e.type === 'lightsOut') {
+    if (e.type === 'light') {
+      hud.setLights(e.count, false);
+      game.setStartLights(e.count);
+    } else if (e.type === 'lightsOut') {
       hud.setLights(0, true);
+      game.setStartLights(0);
       hud.flash('GO GO GO', 'best', 1.5);
     } else if (e.type === 'lap' && e.entrant.isPlayer && e.lap === race.laps - 1) {
       hud.flash('FINAL LAP', 'info', 2.5);
@@ -256,6 +259,7 @@ function startSession(next: SessionMode): void {
 
   wasOff.clear();
   wingWarned = false;
+  game.setStartLights(0);
   rivalsAudio.silence();
 
   if (next === 'trial') {

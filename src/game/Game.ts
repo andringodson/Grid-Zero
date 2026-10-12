@@ -12,6 +12,7 @@ import { CameraRig } from '../render/cameraRig.ts';
 import { buildCarModel, type CarVisual } from '../render/carModel.ts';
 import { Particles } from '../render/effects/particles.ts';
 import { SkidMarks } from '../render/effects/skidMarks.ts';
+import { buildTrackside, type Trackside } from '../render/trackside.ts';
 import { createEnvironment, type Environment } from '../render/environment.ts';
 import type { QualitySettings } from '../render/quality.ts';
 import { buildScenery } from '../render/scenery.ts';
@@ -66,6 +67,7 @@ export class Game {
   private readonly castShadows: boolean;
   private readonly composer: EffectComposer | null;
   private readonly skids: SkidMarks;
+  private readonly trackside: Trackside;
   private readonly particles: Particles;
   private readonly input: Input;
   private readonly onFrame?: GameOptions['onFrame'];
@@ -100,6 +102,8 @@ export class Game {
     // The racing line tells the track where to lay rubber down.
     this.scene.add(buildTrackMeshes(o.track, q, this.field.line));
     this.scene.add(buildScenery(o.track, q));
+    this.trackside = buildTrackside(o.track, q);
+    this.scene.add(this.trackside.group);
     this.skids = new SkidMarks(q);
     this.scene.add(this.skids.mesh);
     this.particles = new Particles(q, this.env.sunDirection);
@@ -150,6 +154,11 @@ export class Game {
     this.accumulator = 0;
     this.visual.update(this.car);
     this.rig.snap(this.car);
+  }
+
+  /** Lights `count` columns of the start gantry over the grid (0 turns them all off). */
+  setStartLights(count: number): void {
+    this.trackside.setStartLights(count);
   }
 
   setTeam(team: Team): void {

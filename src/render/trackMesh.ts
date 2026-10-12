@@ -8,7 +8,7 @@ import { asphaltTextures, barrierTexture, chequerTexture, grassTextures, kerbTex
 /** Ground sits slightly below the asphalt so the two never z-fight at a distance. */
 export const GROUND_Y = -0.06;
 
-interface RibbonOptions {
+export interface RibbonOptions {
   /** Lateral offsets (positive right) of the two edges at sample i. */
   from: (i: number) => number;
   to: (i: number) => number;
@@ -26,7 +26,7 @@ interface RibbonOptions {
 }
 
 /** Builds a strip that follows the centreline, e.g. the asphalt between two lateral offsets. */
-function ribbon(track: Track, o: RibbonOptions): THREE.BufferGeometry {
+export function ribbon(track: Track, o: RibbonOptions): THREE.BufferGeometry {
   const positions: number[] = [];
   const uvs: number[] = [];
   const laterals: number[] = [];
