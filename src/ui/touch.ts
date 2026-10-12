@@ -46,7 +46,8 @@ export class TouchControls {
       <div class="touch-paddles">
         <button class="touch-btn" data-act="shiftDown" aria-label="Shift down">-</button>
         <button class="touch-btn" data-act="shiftUp" aria-label="Shift up">+</button>
-      </div>`;
+      </div>
+      <button class="touch-btn touch-drs" data-act="drs" aria-label="Open DRS">DRS</button>`;
     parent.appendChild(this.root);
     this.steerZone = this.root.querySelector('.touch-steer')!;
     this.knob = this.root.querySelector('.touch-knob')!;
@@ -93,7 +94,7 @@ export class TouchControls {
     this.root.querySelectorAll<HTMLButtonElement>('.touch-btn').forEach((btn) => {
       btn.addEventListener('pointerdown', (e) => {
         e.preventDefault();
-        const act = btn.dataset.act as 'pause' | 'camera' | 'reset' | 'shiftUp' | 'shiftDown';
+        const act = btn.dataset.act as 'pause' | 'camera' | 'reset' | 'shiftUp' | 'shiftDown' | 'drs';
         this.state[act] = true;
         this.state.active = true;
       });
@@ -105,6 +106,13 @@ export class TouchControls {
   show(visible: boolean): void {
     this.root.style.display = visible ? '' : 'none';
     if (!visible) this.releaseAll();
+  }
+
+  /** The DRS button only appears when DRS can be used, and lights up while the flap is open. */
+  setDrs(available: boolean, open: boolean): void {
+    const btn = this.root.querySelector<HTMLElement>('.touch-drs')!;
+    btn.style.display = available ? 'block' : 'none';
+    btn.classList.toggle('open', open);
   }
 
   showPaddles(visible: boolean): void {

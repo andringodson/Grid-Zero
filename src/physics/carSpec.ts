@@ -1,8 +1,10 @@
 import { SLICK, type PacejkaCoefficients } from './tyre.ts';
 
 export interface CarSpec {
-  /** Kilograms, including driver and fuel. */
+  /** Kilograms, including the driver but not fuel. */
   mass: number;
+  /** Fuel flow at full throttle and maximum revs, kg per second. */
+  fuelBurn: number;
   wheelbase: number;
   /** Distance from the centre of gravity to the front axle. */
   cgToFront: number;
@@ -19,6 +21,11 @@ export interface CarSpec {
   /** Drag coefficient times frontal area, m^2. */
   cdA: number;
   rollingResistance: number;
+
+  /** Hybrid system: electric motor power (W), battery capacity (J) and how fast braking can recharge it (W). */
+  ersPower: number;
+  ersCapacity: number;
+  ersHarvest: number;
 
   /** Engine torque in Nm at full throttle, as [rpm, Nm] pairs. */
   torqueCurve: readonly (readonly [number, number])[];
@@ -52,14 +59,19 @@ export interface CarSpec {
   tyreNominalLoad: number;
   /** Distance a tyre rolls before its slip angle catches up with a change in direction. */
   relaxationLength: number;
+
+  /** How far (deg C) either side of a compound's optimal temperature grip has fallen by a fifth. */
+  tyreTempWindow: number;
 }
 
 /**
- * GZ-26: a fictional car built to current top-level open-wheel figures. 800 kg with driver,
- * around 750 kW from a turbo-hybrid V6, and enough downforce to pull more than 5 g in fast corners.
+ * GZ-26: a fictional car built to current top-level open-wheel figures. 770 kg with driver plus fuel,
+ * around 780 kW from a turbo-hybrid V6 and its motor, and enough downforce to pull more than 5 g in fast corners.
  */
 export const GZ26: CarSpec = {
-  mass: 800,
+  mass: 770,
+  // 100 kg an hour at full power, the flow limit of a modern hybrid power unit.
+  fuelBurn: 100 / 3600,
   wheelbase: 3.6,
   cgToFront: 1.98,
   cgHeight: 0.28,
@@ -72,15 +84,20 @@ export const GZ26: CarSpec = {
   cdA: 1.3,
   rollingResistance: 0.012,
 
+  // 120 kW electric on top of a ~660 kW combustion engine: about 780 kW together while the battery lasts.
+  ersPower: 120000,
+  ersCapacity: 4e6,
+  ersHarvest: 120000,
+
   torqueCurve: [
-    [4000, 360],
-    [6000, 450],
-    [8000, 545],
-    [10000, 620],
-    [11000, 635],
-    [12000, 600],
-    [12500, 570],
-    [13000, 520],
+    [4000, 317],
+    [6000, 396],
+    [8000, 480],
+    [10000, 546],
+    [11000, 559],
+    [12000, 528],
+    [12500, 502],
+    [13000, 458],
   ],
   idleRpm: 4000,
   launchRpm: 8500,
@@ -106,4 +123,6 @@ export const GZ26: CarSpec = {
   gripRear: 1.06,
   tyreNominalLoad: 3000,
   relaxationLength: 0.5,
+
+  tyreTempWindow: 40,
 };

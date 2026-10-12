@@ -1,6 +1,6 @@
 import { approach, clamp, damp, interpolateTable } from '../math.ts';
 import type { CarSpec } from './carSpec.ts';
-import { loadSensitiveMu, pacejka, peakSlip } from './tyre.ts';
+import { COMPOUNDS, loadSensitiveMu, pacejka, peakSlip, tyreCondition, type TyreCompound } from './tyre.ts';
 
 export interface CarControls {
   /** 0..1 */
@@ -41,6 +41,24 @@ const G = 9.81;
 const AIR_DENSITY = 1.225;
 const RPM_PER_RAD_S = 60 / (2 * Math.PI);
 
+/** Below this state of charge the hybrid motor deploys less, so the battery tapers rather than running flat. */
+const ERS_TAPER = 0.5;
+/** Energy the exhaust turbine recovers at full throttle and maximum revs, W. */
+const MGUH_POWER = 60000;
+
+/** Track-day ambient air and tarmac, deg C. */
+const AMBIENT = 25;
+/** Joules to raise a tyre's working surface layer by 1 deg C. */
+const TYRE_HEAT_CAPACITY = 9500;
+/** Rear tyres are about 30% wider than the fronts; relative thermal mass of the working layer. */
+const REAR_TYRE_MASS = 1.15;
+/** Heating from carcass flex, per newton of load per m/s. */
+const TYRE_FLEX_HEAT = 5.5e-6;
+/** Cooling rate toward ambient at standstill, per second; airflow raises it with speed. */
+const TYRE_COOLING = 0.012;
+/** Wear per joule of sliding energy: about 1.5% per clean lap of Halden Ring. */
+const TYRE_WEAR_PER_JOULE = 3.6e-8;
+
 /**
  * Single-track vehicle model with per-wheel loads. Heading `yaw` points the car along (cos, sin) in the x-z plane;
  * body-frame velocity is `u` forward and `v` to the right; `r` is yaw rate, positive turning right.
@@ -66,6 +84,26 @@ export class Car {
   limiter = false;
   /** Rear-wing flap open (DRS): less drag and less rear downforce. Set by race control; closes on braking. */
   drsOpen = false;
+  /** Fuel on board, kg. Burned with throttle and revs, so the car gets lighter and quicker through a race. */
+  fuel = 30;
+  /** Tyre surface temperature per wheel, deg C. */
+  readonly tyreTemp = [100, 100, 100, 100];
+  /** Rubber fitted: softer grips more and wears faster. */
+  compound: TyreCompound = COMPOUNDS.medium;
+  /** Tyre wear per wheel, 0 (new) to 1 (worn through). */
+  readonly tyreWear = [0, 0, 0, 0];
+  /**
+   * Air the car is driving through, set each frame from the cars around it: below 1 in a slipstream (less drag)
+   * or in dirty air behind another car (less downforce).
+   */
+  airDrag = 1;
+  airDownforce = 1;
+  /** Front wing damage, 0 (intact) to 1 (wing gone): costs front downforce and adds drag. */
+  wingDamage = 0;
+  /** Battery energy, J. */
+  ersCharge: number;
+  /** Power through the hybrid motor this step, W: positive deploying, negative harvesting. */
+  ersFlow = 0;
 
   /** 0..1 indicators for audio, HUD and effects. */
   wheelSpin = 0;
@@ -92,6 +130,7 @@ export class Car {
     this.spec = spec;
     this.assists = assists;
     this.rpm = spec.idleRpm;
+    this.ersCharge = spec.ersCapacity;
     this.peakAlpha = peakSlip(spec.tyre);
     const a = spec.cgToFront;
     const b = spec.wheelbase - a;
@@ -110,6 +149,23 @@ export class Car {
 
   get speedKmh(): number {
     return Math.abs(this.u) * 3.6;
+  }
+
+  /** Total mass: car and driver plus fuel. */
+  get mass(): number {
+    return this.spec.mass + this.fuel;
+  }
+
+  /** Fits a set of tyres at a temperature (e.g. off the blankets) and wear, optionally of another compound. */
+  setTyres(temp: number, wear = 0, compound: TyreCompound = this.compound): void {
+    this.compound = compound;
+    this.tyreTemp.fill(temp);
+    this.tyreWear.fill(wear);
+  }
+
+  /** Grip multiplier of one tyre from its temperature and wear. */
+  tyreGrip(wheel: number): number {
+    return tyreCondition(this.tyreTemp[wheel], this.tyreWear[wheel], this.compound.optimalTemp, this.spec.tyreTempWindow) * this.compound.grip;
   }
 
   reset(x: number, z: number, yaw: number): void {
@@ -142,7 +198,7 @@ export class Car {
   maxSteerAt(speed: number): number {
     const s = this.spec;
     const v = Math.max(speed, 1);
-    const downforce = (0.5 * AIR_DENSITY * s.clA * v * v) / s.mass;
+    const downforce = (0.5 * AIR_DENSITY * s.clA * v * v) / this.mass;
     const lateralGrip = s.tyreMu * s.gripFront * 0.9 * (G + downforce);
     return Math.min(s.maxSteer, (s.wheelbase * lateralGrip) / (v * v) + this.peakAlpha * 0.5);
   }
@@ -156,7 +212,7 @@ export class Car {
 
   step(dt: number, input: CarControls, probe: SurfaceProbe): void {
     const s = this.spec;
-    const m = s.mass;
+    const m = this.mass;
     const a = s.cgToFront;
     const b = s.wheelbase - a;
     const L = s.wheelbase;
@@ -178,6 +234,8 @@ export class Car {
     const brakeIn = clamp(reversing ? input.throttle : input.brake, 0, 1);
     this.throttle = throttle;
     this.brake = brakeIn;
+    // Touching the brakes closes the DRS flap, as on the real system.
+    if (brakeIn > 0.05) this.drsOpen = false;
 
     // Steering rack.
     const lock = this.assists.steering ? this.maxSteerAt(Math.abs(this.u)) : s.maxSteer;
@@ -188,11 +246,16 @@ export class Car {
     const sinD = Math.sin(delta);
 
     // Vertical loads: static weight, downforce, then longitudinal and lateral weight transfer.
+    // Dirty air costs downforce at both ends; a damaged front wing costs the front most; an open DRS flap sheds
+    // rear-wing downforce.
     const u2 = this.u * this.u;
-    const downforce = 0.5 * AIR_DENSITY * s.clA * u2;
+    const baseDownforce = 0.5 * AIR_DENSITY * s.clA * u2 * this.airDownforce;
+    const dfFront = baseDownforce * s.aeroBalanceFront * (1 - 0.45 * this.wingDamage);
+    const dfRear = baseDownforce * (1 - s.aeroBalanceFront) * (this.drsOpen ? 0.72 : 1);
+    const downforce = dfFront + dfRear;
     const transferLong = (m * this.ax * s.cgHeight) / L;
-    const fzFront = Math.max(0, (m * G * b) / L + downforce * s.aeroBalanceFront - transferLong);
-    const fzRear = Math.max(0, (m * G * a) / L + downforce * (1 - s.aeroBalanceFront) + transferLong);
+    const fzFront = Math.max(0, (m * G * b) / L + dfFront - transferLong);
+    const fzRear = Math.max(0, (m * G * a) / L + dfRear + transferLong);
     // Cornering to the right (ay > 0) loads the left-hand wheels.
     const transferLat = (m * this.ay * s.cgHeight) / s.trackWidth / 2;
     const loads = [
@@ -202,7 +265,8 @@ export class Car {
       Math.max(0, fzRear / 2 - transferLat),
     ];
     const grip = loads.map(
-      (fz, w) => loadSensitiveMu(s.tyreMu * (w < 2 ? s.gripFront : s.gripRear) * surfaces[w].grip, fz, s.tyreNominalLoad) * fz,
+      (fz, w) =>
+        loadSensitiveMu(s.tyreMu * (w < 2 ? s.gripFront : s.gripRear) * surfaces[w].grip * this.tyreGrip(w), fz, s.tyreNominalLoad) * fz,
     );
     const gripFront = Math.max(grip[0] + grip[1], 1);
     const gripRear = Math.max(grip[2] + grip[3], 1);
@@ -229,13 +293,32 @@ export class Car {
     this.rpm = damp(this.rpm, targetRpm, 0.04, dt);
     this.limiter = this.rpm >= s.limiterRpm;
 
-    let torque = this.limiter ? 0 : interpolateTable(s.torqueCurve, this.rpm) * throttle;
+    const fuelled = this.fuel > 0;
+    let torque = this.limiter || !fuelled ? 0 : interpolateTable(s.torqueCurve, this.rpm) * throttle;
     torque -= (1 - throttle) * s.engineBrakeTorque * (this.rpm / s.limiterRpm) * Math.min(1, Math.abs(this.u) / 3);
     if (this.shiftTimer > 0) {
       this.shiftTimer -= dt;
       torque *= 0.4;
     }
     let drive = (torque * ratio * s.drivetrainEfficiency) / s.wheelRadius;
+
+    // Hybrid system. At full throttle the motor deploys (force from a fixed power falls with speed, capped low down by
+    // the motor's torque), tapering as the battery runs low so energy lasts down a straight instead of cutting out
+    // all at once; the exhaust turbine (MGU-H) keeps recovering a little meanwhile. Braking and lifting recharge it.
+    const speedAbs = Math.abs(this.u);
+    const soc = this.ersCharge / s.ersCapacity;
+    let ersIn = 0;
+    let ersOut = 0;
+    if (this.gear > 0 && throttle > 0.85 && speedAbs > 8 && fuelled) {
+      ersOut = Math.min(s.ersPower * throttle * clamp(soc / ERS_TAPER, 0, 1), this.ersCharge / dt);
+      drive += ersOut / Math.max(speedAbs, 25);
+      ersIn = MGUH_POWER * (this.rpm / s.limiterRpm);
+    } else if (speedAbs > 5 && (brakeIn > 0.05 || throttle < 0.1)) {
+      ersIn = s.ersHarvest * Math.max(brakeIn, 0.5);
+    }
+    ersIn = Math.min(ersIn, (s.ersCapacity - this.ersCharge) / dt + ersOut);
+    this.ersCharge = clamp(this.ersCharge + (ersIn - ersOut) * dt, 0, s.ersCapacity);
+    this.ersFlow = ersOut - ersIn;
     if (this.gear < 0) drive = -drive;
 
     // Traction: drive force beyond what the rear tyres can carry becomes wheelspin.
@@ -285,7 +368,8 @@ export class Car {
     // Sum forces in the body frame.
     let fx = fxFront * cosD - fyFront * sinD + fxRear;
     const fy = fxFront * sinD + fyFront * cosD + fyRear;
-    fx -= 0.5 * AIR_DENSITY * s.cdA * this.u * Math.abs(this.u);
+    const cdA = s.cdA * this.airDrag * (this.drsOpen ? 0.86 : 1) * (1 + 0.08 * this.wingDamage);
+    fx -= 0.5 * AIR_DENSITY * cdA * this.u * Math.abs(this.u);
     let rolling = s.rollingResistance * (m * G + downforce);
     for (let w = 0; w < 4; w++) rolling += surfaces[w].drag * loads[w];
     fx -= rolling * clamp(this.u / 0.5, -1, 1);
@@ -331,6 +415,40 @@ export class Car {
 
     const slip = Math.max(Math.abs(this.alphaF), Math.abs(this.alphaR)) / this.peakAlpha;
     this.slide = Math.abs(this.u) > 3 ? clamp(slip - 0.7, 0, 1) : 0;
+
+    if (fuelled) this.fuel = Math.max(0, this.fuel - s.fuelBurn * throttle * (this.rpm / s.limiterRpm) * dt);
+
+    // Tyre temperature and wear. Sliding is what heats a tyre: force times slip speed at the contact patch, shared
+    // across an axle by load. Flexing under load adds a little; airflow cools it toward ambient.
+    const speed = Math.abs(this.u);
+    const latSlipFront = Math.abs(wheelLat);
+    const latSlipRear = Math.abs(this.v - b * this.r);
+    // Longitudinal slip under braking or drive is a few percent of road speed; locking or real wheelspin is far more.
+    const longSlipFront = lockFront ? speed : 0.02 * speed * (brakeFront / gripFront);
+    const spinning = Math.max(0, this.wheelSpin - 0.03);
+    const longSlipRear = lockRear ? speed : speed * (spinning + (0.012 * Math.abs(fxRear)) / gripRear);
+    const axleLoadFront = Math.max(loads[0] + loads[1], 1);
+    const axleLoadRear = Math.max(loads[2] + loads[3], 1);
+    const cooling = TYRE_COOLING * (1 + speed / 40);
+    for (let w = 0; w < 4; w++) {
+      const front = w < 2;
+      const share = loads[w] / (front ? axleLoadFront : axleLoadRear);
+      const power =
+        share *
+        (front
+          ? Math.abs(fyFront) * latSlipFront + Math.abs(fxFront) * longSlipFront
+          : Math.abs(fyRear) * latSlipRear + Math.abs(fxRear) * longSlipRear);
+      // The wider rear tyres carry more rubber, so the same energy warms them less.
+      const mass = front ? 1 : REAR_TYRE_MASS;
+      const heat = (power / TYRE_HEAT_CAPACITY + TYRE_FLEX_HEAT * loads[w] * speed) / mass;
+      // Above its window a tyre sheds heat faster (conduction into the track and carcass), which keeps a driver who
+      // overworks the tyres on the edge rather than in a runaway.
+      const over = Math.max(0, this.tyreTemp[w] - this.compound.optimalTemp) / 25;
+      this.tyreTemp[w] += (heat - cooling * (1 + over) * (this.tyreTemp[w] - AMBIENT)) * dt;
+      // Overheated rubber wears faster.
+      const hot = this.tyreTemp[w] > this.compound.optimalTemp + 15 ? 1.8 : 1;
+      this.tyreWear[w] = Math.min(1, this.tyreWear[w] + power * TYRE_WEAR_PER_JOULE * this.compound.wear * hot * dt);
+    }
   }
 
   private updateGearbox(dt: number, input: CarControls): void {

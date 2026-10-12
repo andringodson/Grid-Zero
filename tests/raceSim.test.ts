@@ -13,6 +13,24 @@ const line = computeRacingLine(track, GZ26);
 const DT = 1 / 240;
 const NEUTRAL = { throttle: 0, brake: 0, steer: 0, shiftUp: false, shiftDown: false };
 
+test('a car close behind another gets a tow and dirty air; the leader runs in clean air', () => {
+  const field = new Field(track, line);
+  const lead = field.addAI('lead', GZ26, { pace: 0.9, laneOffset: 0 }, 0);
+  const chase = field.addAI('chase', GZ26, { pace: 0.9, laneOffset: 0 }, 0);
+  // Same lateral position, 12 m apart on the main straight.
+  const a = track.pointAt(300, 0);
+  const b = track.pointAt(288, 0);
+  lead.car.reset(a.x, a.z, a.heading);
+  chase.car.reset(b.x, b.z, b.heading);
+  lead.world.projection = track.project(a.x, a.z);
+  chase.world.projection = track.project(b.x, b.z);
+  field.plan();
+  assert.equal(lead.car.airDrag, 1);
+  assert.equal(lead.car.airDownforce, 1);
+  assert.ok(chase.car.airDrag < 0.85, `tow ${chase.car.airDrag.toFixed(3)}`);
+  assert.ok(chase.car.airDownforce < 0.95, `dirty air ${chase.car.airDownforce.toFixed(3)}`);
+});
+
 test('eight AI cars race three laps: everyone finishes, with overtakes and no big crashes', () => {
   const field = new Field(track, line);
   const rand = seededRandom(5);
@@ -23,7 +41,7 @@ test('eight AI cars race three laps: everyone finishes, with overtakes and no bi
     field.addAI(id, GZ26, { pace: 0.9 + slot * 0.01 + rand() * 0.004, laneOffset: 0 }, slot);
     entrants.push({ id, name: id, code: id, teamName: 't', colour: '#fff', isPlayer: false });
   }
-  const race = new Race(track.length, 3, entrants, field.cars.map((fc) => fc.world.projection.s), rand);
+  const race = new Race(track.length, 3, entrants, field.cars.map((fc) => fc.world.projection.s), { random: rand });
   const startOrder = field.cars.map((fc) => fc.id);
 
   // Distinct heavy incidents: one per car per second at most, since a single contact spans several steps.

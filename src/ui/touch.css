@@ -144,6 +144,22 @@
   letter-spacing: 0.1em;
 }
 
+.touch-drs {
+  position: absolute;
+  right: calc(232px + var(--safe-r));
+  bottom: calc(80px + var(--safe-b));
+  min-width: 74px;
+  height: 48px;
+  border-color: #3ddc84;
+  color: #3ddc84;
+  display: none;
+}
+
+.touch-drs.open {
+  background: #3ddc84;
+  color: #08240f;
+}
+
 .touch-btn:active {
   background: rgba(255, 255, 255, 0.25);
 }

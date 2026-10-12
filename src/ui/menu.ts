@@ -3,6 +3,7 @@ import type { Standing } from '../game/Race.ts';
 import { RACE_LAPS, type Difficulty, type Settings } from '../game/settings.ts';
 import { TEAMS, type Team } from '../game/teams.ts';
 import type { Assists } from '../physics/Car.ts';
+import { COMPOUNDS } from '../physics/tyre.ts';
 import type { QualityTier } from '../render/quality.ts';
 import type { TouchSteering } from './touch.ts';
 
@@ -200,6 +201,17 @@ export class Menu {
     }
     race.appendChild(laps);
 
+    // Tyres.
+    const tyres = this.section(panel, 'Tyres', 'Soft grips most but wears fastest; hard lasts but needs heat in it.');
+    const compounds = document.createElement('div');
+    compounds.className = 'menu-seg';
+    for (const c of Object.values(COMPOUNDS)) {
+      const b = this.button(compounds, c.name.toUpperCase(), () => void apply({ ...this.settings, compound: c.id }, 'compound'), 'menu-seg-btn');
+      b.setAttribute('aria-pressed', String(this.settings.compound === c.id));
+      b.style.boxShadow = `inset 0 -3px 0 #${c.colour.toString(16).padStart(6, '0')}`;
+    }
+    tyres.appendChild(compounds);
+
     // Assists.
     const assists = this.section(panel, 'Driving assists', 'Turn them off for the full challenge.');
     for (const [key, label, hint] of ASSIST_LABELS) {
@@ -259,7 +271,9 @@ export class Menu {
     const panel = document.createElement('div');
     panel.className = 'menu-panel menu-results';
     const me = this.results.findIndex((r) => r.entrant.isPlayer);
-    const winnerTime = this.results[0]?.finishTime ?? null;
+    // Classified times include any track-limits penalties.
+    const classified = (r: Standing) => (r.finishTime === null ? null : r.finishTime + r.penalty);
+    const winnerTime = this.results[0] ? classified(this.results[0]) : null;
     panel.innerHTML = `<h2>${me === 0 ? 'YOU WIN!' : `YOU FINISHED P${me + 1}`}</h2>`;
     const table = document.createElement('table');
     table.className = 'menu-table';
@@ -268,12 +282,9 @@ export class Menu {
     this.results.forEach((r, i) => {
       const tr = document.createElement('tr');
       if (r.entrant.isPlayer) tr.className = 'me';
-      const time =
-        i === 0 && r.finishTime !== null
-          ? formatLapTime(r.finishTime)
-          : r.finished && winnerTime !== null
-            ? `+${(r.finishTime! - winnerTime).toFixed(3)}`
-            : 'Running';
+      const t = classified(r);
+      let time = i === 0 && t !== null ? formatLapTime(t) : r.finished && t !== null && winnerTime !== null ? `+${(t - winnerTime).toFixed(3)}` : 'Running';
+      if (r.penalty > 0) time += ` (${r.penalty}s pen)`;
       const cells = [String(i + 1), r.entrant.name, r.entrant.teamName, time, formatLapTime(r.bestLap)];
       for (const [k, text] of cells.entries()) {
         const td = document.createElement('td');
