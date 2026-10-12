@@ -130,14 +130,14 @@ export function asphaltTextures(size: number, anisotropy: number): SurfaceTextur
 }
 
 /** Mown grass with the light and dark stripes a groundskeeper leaves. */
-export function grassTextures(size: number, anisotropy: number): SurfaceTextures {
+export function grassTextures(size: number, anisotropy: number, mown = true): SurfaceTextures {
   const broad = fractalNoise(size, 21, 4, 4);
   const fine = fractalNoise(size, 22, 3, Math.max(32, size / 4));
   const [c, ctx] = canvas(size);
   const img = ctx.createImageData(size, size);
   const height = new Float32Array(size * size);
   for (let y = 0; y < size; y++) {
-    const stripe = Math.floor((y / size) * 4) % 2 === 0 ? 1 : 0.86;
+    const stripe = !mown || Math.floor((y / size) * 4) % 2 === 0 ? 1 : 0.86;
     for (let x = 0; x < size; x++) {
       const i = y * size + x;
       const v = (0.75 + broad[i] * 0.35 + fine[i] * 0.25) * stripe;
@@ -273,7 +273,7 @@ export function gravelTextures(size: number, anisotropy: number): SurfaceTexture
   const img = ctx.createImageData(size, size);
   const height = new Float32Array(size * size);
   for (let i = 0; i < size * size; i++) {
-    const pebble = fine[i] > 0.55 ? 1 : 0.62;
+    const pebble = fine[i] > 0.55 ? 1 : 0.8;
     const tone = (0.62 + broad[i] * 0.25) * pebble * (0.9 + rand() * 0.2);
     img.data[i * 4] = 196 * tone;
     img.data[i * 4 + 1] = 176 * tone;

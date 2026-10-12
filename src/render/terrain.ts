@@ -13,7 +13,10 @@ const MARGIN = 900;
 /** Beyond the barrier the ground stays level with the track this far, then blends into the landscape. */
 const LEVEL_BEYOND_BARRIER = 8;
 const BLEND = 80;
-const HILL_AMPLITUDE = 7;
+/** Hills are gentle beside the circuit and grow into rolling countryside further out. */
+const HILL_NEAR = 6;
+const HILL_FAR = 30;
+const HILL_FAR_DISTANCE = 600;
 
 /** Mesh vertex spacing per tier: the heightfield is shared, only the mesh is coarser on weaker devices. */
 const MESH_STEP: Record<QualitySettings['tier'], number> = { low: 18, medium: 12, high: 9, ultra: 6 };
@@ -32,6 +35,8 @@ const smoothstep = (a: number, b: number, x: number) => {
 export class Terrain {
   readonly mesh: THREE.Mesh;
   private readonly heights: Float32Array;
+  /** Per cell: 0 on the circuit's level ground, 1 in open countryside. */
+  private readonly blend: Float32Array;
   private readonly x0: number;
   private readonly z0: number;
   private readonly nx: number;
@@ -146,6 +151,7 @@ export class Terrain {
 
     this.heights = new Float32Array(n);
     const blendW = new Float32Array(n);
+    this.blend = blendW;
     const spanX = (this.nx - 1) * CELL;
     const spanZ = (this.nz - 1) * CELL;
     for (let gz = 0; gz < this.nz; gz++) {
@@ -159,7 +165,10 @@ export class Terrain {
         // Countryside: regional height plus hills, settling to the horizon level at the map's edge.
         const edge = Math.min(gx * CELL, spanX - gx * CELL, gz * CELL, spanZ - gz * CELL);
         const settle = smoothstep(0, 300, edge);
-        const land = (regionalAt(x, z) + hillAt(x, z) * HILL_AMPLITUDE) * settle + meanY * (1 - settle) - GROUND_DROP;
+        const away = isFinite(d) ? d : HILL_FAR_DISTANCE;
+        const amplitude = HILL_NEAR + (HILL_FAR - HILL_NEAR) * smoothstep(150, HILL_FAR_DISTANCE, away);
+        const hills = hillAt(x, z) * amplitude + hillAt(x * 2.7 + 1000, z * 2.7 - 500) * amplitude * 0.25;
+        const land = (regionalAt(x, z) + hills) * settle + meanY * (1 - settle) - GROUND_DROP;
         const near = isFinite(d) ? nearY[k] - GROUND_DROP : land;
         this.heights[k] = near * (1 - w) + land * w;
         blendW[k] = w;
@@ -183,6 +192,68 @@ export class Terrain {
     this.mesh = this.buildMesh(q);
   }
 
+  /**
+   * Mountains on the horizon: a ring of ridges well beyond the countryside. Coloured as distant mountains look,
+   * hazed toward the sky, with fog off so they stay visible as silhouettes past the draw distance.
+   */
+  buildRidge(): THREE.Mesh {
+    const cx = this.x0 + ((this.nx - 1) * CELL) / 2;
+    const cz = this.z0 + ((this.nz - 1) * CELL) / 2;
+    const inner = Math.hypot(((this.nx - 1) * CELL) / 2, ((this.nz - 1) * CELL) / 2) + 300;
+    const outer = 5600;
+    const around = 160;
+    const radial = 12;
+    const rand = seededRandom(151);
+    const phases = [rand() * 6.28, rand() * 6.28, rand() * 6.28, rand() * 6.28];
+    const positions: number[] = [];
+    const indices: number[] = [];
+    for (let i = 0; i <= around; i++) {
+      const a = (i / around) * Math.PI * 2;
+      // Ridgeline: a few overlapping waves around the horizon give peaks, saddles and a lower gap or two.
+      const crest =
+        180 +
+        110 * Math.sin(a * 3 + phases[0]) +
+        70 * Math.sin(a * 7 + phases[1]) +
+        35 * Math.sin(a * 17 + phases[2]) +
+        15 * Math.sin(a * 41 + phases[3]);
+      for (let j = 0; j <= radial; j++) {
+        const t = j / radial;
+        const r = inner + (outer - inner) * t;
+        // Rising from the plain to the crest about two thirds out, then falling away behind it.
+        const profile = t < 0.65 ? Math.sin((t / 0.65) * Math.PI * 0.5) ** 1.6 : 1 - ((t - 0.65) / 0.35) * 0.6;
+        positions.push(cx + Math.cos(a) * r, this.horizonHeight - 2 + Math.max(20, crest) * profile, cz + Math.sin(a) * r);
+      }
+    }
+    for (let i = 0; i < around; i++) {
+      for (let j = 0; j < radial; j++) {
+        const k = i * (radial + 1) + j;
+        indices.push(k, k + 1, k + radial + 1, k + 1, k + radial + 2, k + radial + 1);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    // Aerial perspective: the base, seen through the most air, is palest; the crests a deeper blue-grey.
+    const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+    const colors = new Float32Array(pos.count * 3);
+    const low = new THREE.Color(0xb3c2cf);
+    const high = new THREE.Color(0x7f93a3);
+    const c = new THREE.Color();
+    for (let k = 0; k < pos.count; k++) {
+      const h = (pos.getY(k) - this.horizonHeight) / 260;
+      c.copy(low).lerp(high, Math.min(1, Math.max(0, h)));
+      colors[k * 3] = c.r;
+      colors[k * 3 + 1] = c.g;
+      colors[k * 3 + 2] = c.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    // Unlit: at this distance haze, not sunlight, sets the tone.
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, side: THREE.DoubleSide }));
+    mesh.name = 'ridge';
+    return mesh;
+  }
+
   /** Ground height at a world position (bilinear in the heightfield; the horizon level outside it). */
   heightAt(x: number, z: number): number {
     const fx = (x - this.x0) / CELL;
@@ -200,6 +271,27 @@ export class Terrain {
     return a + (b - a) * tx + (c - a) * tz + (a - b - c + d) * tx * tz;
   }
 
+  /**
+   * Field colour: mown green beside the circuit; further out, patches of darker pasture and paler, drier grass,
+   * so the countryside doesn't read as one lawn.
+   */
+  private fieldTint(x: number, z: number, out: THREE.Color): THREE.Color {
+    const near = 1 - this.blendAt(x, z);
+    const n = Math.sin(x * 0.011 + Math.sin(z * 0.007) * 2) * Math.cos(z * 0.013 + Math.sin(x * 0.005) * 2);
+    const patch = n > 0.35 ? 0 : n < -0.35 ? 1 : 2;
+    const far = patch === 0 ? [0.78, 0.85, 0.7] : patch === 1 ? [1.12, 1.05, 0.78] : [0.95, 1.0, 0.92];
+    out.setRGB(1 + (far[0] - 1) * (1 - near), 1 + (far[1] - 1) * (1 - near), 1 + (far[2] - 1) * (1 - near));
+    return out;
+  }
+
+  /** 0 on the circuit's level ground, rising to 1 in the open countryside. */
+  private blendAt(x: number, z: number): number {
+    const gx = Math.round((x - this.x0) / CELL);
+    const gz = Math.round((z - this.z0) / CELL);
+    if (gx < 0 || gz < 0 || gx >= this.nx || gz >= this.nz) return 1;
+    return this.blend[gz * this.nx + gx];
+  }
+
   private buildMesh(q: QualitySettings): THREE.Mesh {
     const step = MESH_STEP[q.tier];
     const w = (this.nx - 1) * CELL;
@@ -208,6 +300,9 @@ export class Terrain {
     const rows = Math.floor(h / step) + 1;
     const positions = new Float32Array(cols * rows * 3);
     const uvs = new Float32Array(cols * rows * 2);
+    const colors = new Float32Array(cols * rows * 3);
+    const farness = new Float32Array(cols * rows);
+    const tint = new THREE.Color();
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const x = this.x0 + c * step;
@@ -219,6 +314,11 @@ export class Terrain {
         // One grass texture repeat every 40 m.
         uvs[k * 2] = x / 40;
         uvs[k * 2 + 1] = z / 40;
+        this.fieldTint(x, z, tint);
+        colors[k * 3] = tint.r;
+        colors[k * 3 + 1] = tint.g;
+        colors[k * 3 + 2] = tint.b;
+        farness[k] = this.blendAt(x, z);
       }
     }
     const indices: number[] = [];
@@ -231,19 +331,40 @@ export class Terrain {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.setAttribute('farness', new THREE.BufferAttribute(farness, 1));
     geo.setIndex(indices);
     geo.computeVertexNormals();
     const grass = grassTextures(q.textureSize, q.anisotropy);
-    const mesh = new THREE.Mesh(
-      geo,
-      new THREE.MeshStandardMaterial({
-        map: grass.map,
-        normalMap: grass.normalMap,
-        normalScale: new THREE.Vector2(0.5, 0.5),
-        roughness: 0.95,
-        metalness: 0,
-      }),
-    );
+    const meadow = grassTextures(q.textureSize, q.anisotropy, false).map;
+    const material = new THREE.MeshStandardMaterial({
+      map: grass.map,
+      normalMap: grass.normalMap,
+      normalScale: new THREE.Vector2(0.5, 0.5),
+      roughness: 0.95,
+      metalness: 0,
+      vertexColors: true,
+    });
+    // Mown stripes belong beside the circuit; the open countryside blends to unmown meadow, sampled at a different
+    // scale so the two textures never line up into an obvious repeat.
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms.meadowMap = { value: meadow };
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+          attribute float farness;
+          varying float vFarness;`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          vFarness = farness;`);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>
+          uniform sampler2D meadowMap;
+          varying float vFarness;`)
+        .replace('#include <map_fragment>', `
+          vec4 mown = texture2D(map, vMapUv);
+          vec4 wild = texture2D(meadowMap, vMapUv * 0.61 + vec2(0.37, 0.11));
+          diffuseColor *= mix(mown, wild, smoothstep(0.15, 0.85, vFarness));`);
+    };
+    const mesh = new THREE.Mesh(geo, material);
     mesh.receiveShadow = true;
     mesh.name = 'terrain';
     return mesh;

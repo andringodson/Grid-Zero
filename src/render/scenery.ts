@@ -17,7 +17,6 @@ export function buildScenery(track: Track, q: QualitySettings, groundAt: (x: num
   group.add(pitBuilding(track, q));
   group.add(brakingBoards(track));
   group.add(trees(track, q, groundAt));
-  group.add(hills(track, groundAt));
   return group;
 }
 
@@ -159,6 +158,27 @@ function brakingBoards(track: Track): THREE.Group {
   return group;
 }
 
+/**
+ * Pushes each vertex in or out along its direction from the trunk axis by a pseudo-random amount keyed on its
+ * position, so coincident vertices on seams move together and the surface never cracks. Breaks up the perfect
+ * outline of a primitive into something leafy.
+ */
+function roughen(geo: THREE.BufferGeometry, amount: number, seed: number): THREE.BufferGeometry {
+  const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+  const v = new THREE.Vector3();
+  for (let k = 0; k < pos.count; k++) {
+    v.fromBufferAttribute(pos, k);
+    const h = Math.sin(v.x * 12.9898 + v.y * 78.233 + v.z * 37.719 + seed) * 43758.5453;
+    const n = (h - Math.floor(h)) * 2 - 1;
+    const radial = Math.hypot(v.x, v.z);
+    if (radial < 1e-4) continue;
+    const scale = 1 + n * amount;
+    pos.setXYZ(k, v.x * scale, v.y + n * amount * 0.6, v.z * scale);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
 /** Instanced conifers and broadleaf trees, kept well clear of the barriers and the paddock. */
 function trees(track: Track, q: QualitySettings, groundAt: (x: number, z: number) => number): THREE.Group {
   const group = new THREE.Group();
@@ -192,19 +212,39 @@ function trees(track: Track, q: QualitySettings, groundAt: (x: number, z: number
     spots.push({ x, y: groundAt(x, z) - 0.3, z, scale: 0.7 + rand() * 0.7, kind: rand() < 0.55 ? 0 : 1 });
   }
 
-  const trunkGeo = new THREE.CylinderGeometry(0.25, 0.4, 4, 6);
+  const trunkGeo = new THREE.CylinderGeometry(0.22, 0.42, 4, 7);
   trunkGeo.translate(0, 2, 0);
-  const pineGeo = mergeGeometries([
-    new THREE.ConeGeometry(3.2, 7, 8).translate(0, 6.5, 0),
-    new THREE.ConeGeometry(2.5, 6, 8).translate(0, 9.5, 0),
-    new THREE.ConeGeometry(1.6, 5, 8).translate(0, 12.5, 0),
-  ])!;
-  const broadGeo = new THREE.IcosahedronGeometry(4.2, 1);
-  broadGeo.scale(1, 0.85, 1);
-  broadGeo.translate(0, 7.5, 0);
+  // Conifer: five drooping tiers, each edge broken up into branch tips.
+  const pineGeo = roughen(
+    mergeGeometries(
+      [
+        [3.4, 4.2, 4.6],
+        [2.9, 4, 6.8],
+        [2.3, 3.6, 8.9],
+        [1.7, 3.2, 10.8],
+        [1.0, 2.8, 12.6],
+      ].map(([r, h, y]) => new THREE.ConeGeometry(r, h, 14, 2).translate(0, y, 0)),
+    )!,
+    0.22,
+    7,
+  );
+  // Broadleaf: a canopy of overlapping lobes rather than one ball.
+  const broadGeo = roughen(
+    mergeGeometries(
+      [
+        [0, 7.6, 0, 3.3],
+        [1.9, 6.6, 0.6, 2.5],
+        [-1.6, 6.9, -0.9, 2.6],
+        [0.3, 6.4, 2.0, 2.3],
+        [-0.4, 9.0, -0.3, 2.4],
+      ].map(([x, y, z, r]) => new THREE.IcosahedronGeometry(r, 2).translate(x, y, z)),
+    )!,
+    0.28,
+    11,
+  );
 
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3626, roughness: 0.95 });
-  const leafMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true });
+  const leafMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 });
 
   const make = (geo: THREE.BufferGeometry, mat: THREE.Material, list: Spot[]) => {
     const mesh = new THREE.InstancedMesh(geo, mat, list.length);
@@ -239,32 +279,5 @@ function trees(track: Track, q: QualitySettings, groundAt: (x: number, z: number
   place(pineMesh, pines, 0.33);
   place(broadMesh, broads, 0.25);
   group.add(trunks, pineMesh, broadMesh);
-  return group;
-}
-
-/** A ring of distant hills, softened by haze, so the horizon isn't a flat edge. */
-function hills(track: Track, groundAt: (x: number, z: number) => number): THREE.Group {
-  const group = new THREE.Group();
-  const rand = seededRandom(101);
-  let cx = 0;
-  let cz = 0;
-  for (let i = 0; i < track.count; i++) {
-    cx += track.xs[i];
-    cz += track.zs[i];
-  }
-  cx /= track.count;
-  cz /= track.count;
-  const mat = new THREE.MeshStandardMaterial({ color: 0x4f6046, roughness: 1, flatShading: true });
-  for (let k = 0; k < 36; k++) {
-    const angle = (k / 36) * Math.PI * 2 + rand() * 0.1;
-    const dist = 2600 + rand() * 700;
-    const radius = 350 + rand() * 450;
-    const hill = new THREE.Mesh(new THREE.ConeGeometry(radius, 120 + rand() * 260, 7, 1), mat);
-    const hx = cx + Math.cos(angle) * dist;
-    const hz = cz + Math.sin(angle) * dist;
-    hill.position.set(hx, groundAt(hx, hz), hz);
-    hill.rotation.y = rand() * Math.PI;
-    group.add(hill);
-  }
   return group;
 }
