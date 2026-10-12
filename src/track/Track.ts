@@ -1,7 +1,12 @@
 import { wrapAngle } from '../math.ts';
 import type { CircuitDefinition } from './circuits.ts';
 
-export type Surface = 'track' | 'kerb' | 'grass';
+export type Surface = 'track' | 'kerb' | 'grass' | 'gravel' | 'runoff';
+
+/** What lies beyond the kerb on one side of a track sample. */
+export const RUNOFF_GRASS = 0;
+export const RUNOFF_GRAVEL = 1;
+export const RUNOFF_ASPHALT = 2;
 
 export interface TrackProjection {
   /** Sample index: the point lies between samples `index` and `index + 1`. */
@@ -72,6 +77,9 @@ export class Track {
   /** Distance from the centreline to the barrier on each side. */
   readonly barrierLeft: Float64Array;
   readonly barrierRight: Float64Array;
+  /** Run-off beyond the kerbs on each side: RUNOFF_GRASS, RUNOFF_GRAVEL or RUNOFF_ASPHALT. */
+  readonly runoffLeft: Uint8Array;
+  readonly runoffRight: Uint8Array;
   /** Start of each timing sector, in metres from the line. */
   readonly sectorStarts: readonly number[];
 
@@ -178,6 +186,28 @@ export class Track {
     this.barrierLeft = this.smooth(this.movingMin(wantLeft, 10), 6);
     this.barrierRight = this.smooth(this.movingMin(wantRight, 10), 6);
 
+    // 6. Run-off on the outside of corners, where a car that gets it wrong ends up. Tight corners at the end of a
+    //    braking zone get painted asphalt, so a driver who outbrakes himself can rejoin, and it reaches back over
+    //    the braking zone; faster corners get gravel, which slows a car that slides off hard.
+    this.runoffLeft = new Uint8Array(count);
+    this.runoffRight = new Uint8Array(count);
+    const before = Math.round(50 / this.spacing);
+    const after = Math.round(40 / this.spacing);
+    const brakingZone = Math.round(120 / this.spacing);
+    for (let k = 0; k < count; k++) {
+      const c = this.curvature[k];
+      if (Math.abs(c) < 1 / 400) continue;
+      const tight = Math.abs(c) > 1 / 80;
+      const kind = tight ? RUNOFF_ASPHALT : RUNOFF_GRAVEL;
+      // The outside of a right-hander is on the left.
+      const side = c > 0 ? this.runoffLeft : this.runoffRight;
+      for (let d = -(tight ? brakingZone : before); d <= after; d++) {
+        const i = this.wrap(k + d);
+        // Asphalt wins where zones overlap: it's what the tight corner's braking zone needs.
+        if (side[i] !== RUNOFF_ASPHALT) side[i] = kind;
+      }
+    }
+
     this.sectorStarts = [0, this.length / 3, (2 * this.length) / 3];
   }
 
@@ -264,6 +294,9 @@ export class Track {
     if (a <= this.halfWidth) return 'track';
     const kerb = p.lateral > 0 ? this.kerbRight[p.index] : this.kerbLeft[p.index];
     if (kerb && a <= this.halfWidth + this.kerbWidth) return 'kerb';
+    const runoff = p.lateral > 0 ? this.runoffRight[p.index] : this.runoffLeft[p.index];
+    if (runoff === RUNOFF_GRAVEL) return 'gravel';
+    if (runoff === RUNOFF_ASPHALT) return 'runoff';
     return 'grass';
   }
 

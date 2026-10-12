@@ -8,6 +8,7 @@ const DT = 1 / 240;
 const ALL_ASSISTS: Assists = { steering: true, autoGears: true, tractionControl: true, abs: true };
 const asphalt: SurfaceProbe = () => ({ kind: 'track', grip: 1, drag: 0 });
 const grass: SurfaceProbe = () => ({ kind: 'grass', grip: 0.5, drag: 0.3 });
+const gravel: SurfaceProbe = () => ({ kind: 'gravel', grip: 0.45, drag: 1.1 });
 
 function controls(c: Partial<CarControls>): CarControls {
   return { throttle: 0, brake: 0, steer: 0, shiftUp: false, shiftDown: false, ...c };
@@ -149,4 +150,17 @@ test('holding the brake at a standstill selects reverse, and the brake pedal the
   assert.ok(car.x < -1, `reversed to x=${car.x.toFixed(2)}`);
   run(car, 2, controls({ throttle: 1 }));
   assert.equal(car.gear >= 1, true);
+});
+
+test('a gravel trap stops a car far sooner than grass', () => {
+  const stop = (probe: SurfaceProbe) => {
+    const car = newCar();
+    run(car, 5, controls({ throttle: 1 }));
+    const x0 = car.x;
+    run(car, 10, controls({}), probe, (c) => c.speedKmh < 5);
+    return car.x - x0;
+  };
+  const inGrass = stop(grass);
+  const inGravel = stop(gravel);
+  assert.ok(inGravel < inGrass * 0.5, `gravel ${inGravel.toFixed(0)} m vs grass ${inGrass.toFixed(0)} m`);
 });

@@ -152,10 +152,10 @@ export class SkidMarks {
 
     let kind = -1;
     let alpha = 0;
-    if (surface === 'grass' && speed > 3) {
+    if ((surface === 'grass' || surface === 'gravel') && speed > 3) {
       kind = 1;
       alpha = 0.32 + 0.3 * Math.max(car.slide, car.lockup);
-    } else if (surface === 'track') {
+    } else if (surface === 'track' || surface === 'runoff') {
       const scrub = tyreScrub(car, w);
       if (scrub > (t.active && t.kind === 0 ? STOP : START)) {
         kind = 0;

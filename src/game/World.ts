@@ -10,6 +10,10 @@ const SURFACES: Record<WheelSurface['kind'], WheelSurface> = {
   track: { kind: 'track', grip: 1, drag: 0 },
   kerb: { kind: 'kerb', grip: 0.92, drag: 0.012 },
   grass: { kind: 'grass', grip: 0.5, drag: 0.3 },
+  // Gravel traps are built to stop cars: wheels dig in and grip is poor.
+  gravel: { kind: 'gravel', grip: 0.45, drag: 1.1 },
+  // Painted asphalt run-off: dusty and unrubbered, but a car can rejoin from it.
+  runoff: { kind: 'runoff', grip: 0.85, drag: 0.02 },
 };
 
 /** Half the car's width, for barrier contact. */
@@ -110,6 +114,6 @@ export class World {
 
   /** True when all four wheels are off the track and kerbs, which breaks track limits. */
   allWheelsOff(car: Car): boolean {
-    return car.wheelSurface.every((k) => k === 'grass');
+    return car.wheelSurface.every((k) => k !== 'track' && k !== 'kerb');
   }
 }

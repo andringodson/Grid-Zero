@@ -212,11 +212,13 @@ export class Particles {
       const x = wheelX(car, w);
       const z = wheelZ(car, w);
       if (surface === 'kerb') kerb = w % 2 === 0 ? -1 : 1;
-      if (surface === 'grass') {
+      if (surface === 'grass' || surface === 'gravel') {
         if (!b.grass || speed < 5) continue;
         const k = Math.min(1, speed / 40);
-        this.spawnMany(18 * k * b.rate * dt, DUST, x, z, vx, vz);
-        this.spawnMany(30 * k * b.rate * dt, CLUMP, x, z, vx, vz);
+        // Gravel throws a cloud of stone dust; grass throws clods of turf.
+        const gravel = surface === 'gravel';
+        this.spawnMany((gravel ? 45 : 18) * k * b.rate * dt, DUST, x, z, vx, vz);
+        this.spawnMany((gravel ? 6 : 30) * k * b.rate * dt, CLUMP, x, z, vx, vz);
         continue;
       }
       const scrub = tyreScrub(car, w);

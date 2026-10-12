@@ -22,7 +22,7 @@ export interface Assists {
   abs: boolean;
 }
 
-export type SurfaceKind = 'track' | 'kerb' | 'grass';
+export type SurfaceKind = 'track' | 'kerb' | 'grass' | 'gravel' | 'runoff';
 
 export interface WheelSurface {
   kind: SurfaceKind;
