@@ -1,4 +1,5 @@
 import type { Assists } from '../physics/Car.ts';
+import type { TyreCompound } from '../physics/tyre.ts';
 import { detectQualityTier, type QualityTier } from '../render/quality.ts';
 import type { TouchSteering } from '../ui/touch.ts';
 import { loadSetting, saveSetting } from './storage.ts';
@@ -14,6 +15,7 @@ export interface Settings {
   teamId: string;
   difficulty: Difficulty;
   raceLaps: number;
+  compound: TyreCompound['id'];
 }
 
 /** AI pace range per difficulty, as a fraction of the racing line's limit. Hard is close to a clean flying lap. */
@@ -44,6 +46,7 @@ export function loadSettings(): Settings {
     teamId: TEAMS.some((t) => t.id === saved.teamId) ? saved.teamId! : TEAMS[0].id,
     difficulty: saved.difficulty === 'easy' || saved.difficulty === 'hard' ? saved.difficulty : 'medium',
     raceLaps: (RACE_LAPS as readonly number[]).includes(saved.raceLaps ?? 0) ? saved.raceLaps! : 3,
+    compound: saved.compound === 'soft' || saved.compound === 'hard' ? saved.compound : 'medium',
   };
 }
 

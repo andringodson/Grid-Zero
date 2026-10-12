@@ -60,14 +60,13 @@ export interface CarSpec {
   /** Distance a tyre rolls before its slip angle catches up with a change in direction. */
   relaxationLength: number;
 
-  /** Tyre surface temperature (deg C) with peak grip, and how far either side grip has fallen by a fifth. */
-  tyreOptimalTemp: number;
+  /** How far (deg C) either side of a compound's optimal temperature grip has fallen by a fifth. */
   tyreTempWindow: number;
 }
 
 /**
  * GZ-26: a fictional car built to current top-level open-wheel figures. 770 kg with driver plus fuel,
- * around 750 kW from a turbo-hybrid V6, and enough downforce to pull more than 5 g in fast corners.
+ * around 780 kW from a turbo-hybrid V6 and its motor, and enough downforce to pull more than 5 g in fast corners.
  */
 export const GZ26: CarSpec = {
   mass: 770,
@@ -125,6 +124,5 @@ export const GZ26: CarSpec = {
   tyreNominalLoad: 3000,
   relaxationLength: 0.5,
 
-  tyreOptimalTemp: 100,
   tyreTempWindow: 40,
 };

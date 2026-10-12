@@ -12,6 +12,7 @@ import { DIFFICULTY_CONSISTENCY, DIFFICULTY_PACE, loadSettings, saveSettings, ty
 import { loadBestLap, saveBestLap } from './game/storage.ts';
 import { TEAMS, type Team } from './game/teams.ts';
 import { Input } from './input/Input.ts';
+import { COMPOUNDS, type TyreCompound } from './physics/tyre.ts';
 import { QUALITY, type QualityTier } from './render/quality.ts';
 import { HALDEN_RING } from './track/circuits.ts';
 import { Track } from './track/Track.ts';
@@ -63,7 +64,7 @@ let wingWarned = false;
 const game = new Game({
   container,
   track,
-  team: teamOf(settings.teamId),
+  team: onCompound(teamOf(settings.teamId), COMPOUNDS[settings.compound]),
   quality: QUALITY[settings.quality],
   assists: settings.assists,
   input,
@@ -207,7 +208,7 @@ const menu = new Menu(document.body, settings, track.name, {
   onTeam(team) {
     settings = { ...settings, teamId: team.id };
     saveSettings(settings);
-    game.setTeam(team);
+    game.setTeam(onCompound(team, COMPOUNDS[settings.compound]));
   },
   async onSettings(next: Settings, changed) {
     if (changed === 'touchSteering') {
@@ -225,11 +226,23 @@ const menu = new Menu(document.body, settings, track.name, {
       return true;
     }
     game.car.assists = { ...settings.assists };
+    if (changed === 'compound') game.setTeam(onCompound(teamOf(settings.teamId), COMPOUNDS[settings.compound]));
     touch.showPaddles(!settings.assists.autoGears);
     audio.setVolume(settings.volume);
     return true;
   },
 });
+
+/** A team's livery with the sidewall band of the tyres fitted. */
+function onCompound(team: Team, compound: TyreCompound): Team {
+  return { ...team, livery: { ...team.livery, compound: compound.colour } };
+}
+
+/** Rivals split their tyre choice the way a real grid does: mostly mediums, some softs, a few hards. */
+function pickCompound(): TyreCompound {
+  const r = Math.random();
+  return r < 0.3 ? COMPOUNDS.soft : r < 0.8 ? COMPOUNDS.medium : COMPOUNDS.hard;
+}
 
 const codeOf = (name: string) => name.split(' ').pop()!.slice(0, 3).toUpperCase();
 
@@ -270,9 +283,10 @@ function startSession(next: SessionMode): void {
     [slots[i], slots[j]] = [slots[j], slots[i]];
   }
   const [lo, hi] = DIFFICULTY_PACE[settings.difficulty];
+  const compounds = rivals.map(() => pickCompound());
   const opponents = rivals.map((r, i) => ({
     id: `ai-${i}`,
-    team: r.team,
+    team: onCompound(r.team, compounds[i]),
     slot: slots[i],
     skill: {
       pace: lo + Math.random() * (hi - lo),
@@ -292,7 +306,7 @@ function startSession(next: SessionMode): void {
       return { id: o.id, name: rivals[i].name, code: codeOf(rivals[i].name), teamName: o.team.name, colour, isPlayer: false };
     }),
   ];
-  prepareCars(settings.raceLaps * FUEL_PER_LAP + FUEL_MARGIN);
+  prepareCars(settings.raceLaps * FUEL_PER_LAP + FUEL_MARGIN, (id) => compounds[opponents.findIndex((o) => o.id === id)]);
   race = new Race(track.length, settings.raceLaps, entrants, entrants.map((e) => game.sOf(e.id)), {
     drsZones,
     // Real races enable DRS two laps in; short races get it a lap earlier so it comes into play.
@@ -304,9 +318,9 @@ function startSession(next: SessionMode): void {
 }
 
 /** Fresh tyres off the blankets, a fuel load for the session, and an undamaged car for everyone. */
-function prepareCars(fuel: number): void {
+function prepareCars(fuel: number, rivalCompound: (id: string) => TyreCompound = () => COMPOUNDS.medium): void {
   for (const fc of game.field.cars) {
-    fc.car.setTyres(BLANKET_TEMP);
+    fc.car.setTyres(BLANKET_TEMP, 0, fc.driver ? rivalCompound(fc.id) : COMPOUNDS[settings.compound]);
     fc.car.fuel = fuel;
     fc.car.wingDamage = 0;
     fc.car.drsOpen = false;

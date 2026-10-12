@@ -3,6 +3,7 @@ import type { Standing } from '../game/Race.ts';
 import { RACE_LAPS, type Difficulty, type Settings } from '../game/settings.ts';
 import { TEAMS, type Team } from '../game/teams.ts';
 import type { Assists } from '../physics/Car.ts';
+import { COMPOUNDS } from '../physics/tyre.ts';
 import type { QualityTier } from '../render/quality.ts';
 import type { TouchSteering } from './touch.ts';
 
@@ -199,6 +200,17 @@ export class Menu {
       b.setAttribute('aria-pressed', String(this.settings.raceLaps === n));
     }
     race.appendChild(laps);
+
+    // Tyres.
+    const tyres = this.section(panel, 'Tyres', 'Soft grips most but wears fastest; hard lasts but needs heat in it.');
+    const compounds = document.createElement('div');
+    compounds.className = 'menu-seg';
+    for (const c of Object.values(COMPOUNDS)) {
+      const b = this.button(compounds, c.name.toUpperCase(), () => void apply({ ...this.settings, compound: c.id }, 'compound'), 'menu-seg-btn');
+      b.setAttribute('aria-pressed', String(this.settings.compound === c.id));
+      b.style.boxShadow = `inset 0 -3px 0 #${c.colour.toString(16).padStart(6, '0')}`;
+    }
+    tyres.appendChild(compounds);
 
     // Assists.
     const assists = this.section(panel, 'Driving assists', 'Turn them off for the full challenge.');

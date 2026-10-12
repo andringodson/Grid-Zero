@@ -1,6 +1,6 @@
 import { approach, clamp, damp, interpolateTable } from '../math.ts';
 import type { CarSpec } from './carSpec.ts';
-import { loadSensitiveMu, pacejka, peakSlip, tyreCondition } from './tyre.ts';
+import { COMPOUNDS, loadSensitiveMu, pacejka, peakSlip, tyreCondition, type TyreCompound } from './tyre.ts';
 
 export interface CarControls {
   /** 0..1 */
@@ -88,6 +88,8 @@ export class Car {
   fuel = 30;
   /** Tyre surface temperature per wheel, deg C. */
   readonly tyreTemp = [100, 100, 100, 100];
+  /** Rubber fitted: softer grips more and wears faster. */
+  compound: TyreCompound = COMPOUNDS.medium;
   /** Tyre wear per wheel, 0 (new) to 1 (worn through). */
   readonly tyreWear = [0, 0, 0, 0];
   /**
@@ -154,15 +156,16 @@ export class Car {
     return this.spec.mass + this.fuel;
   }
 
-  /** Fits a set of tyres at a temperature (e.g. off the blankets) and wear. */
-  setTyres(temp: number, wear = 0): void {
+  /** Fits a set of tyres at a temperature (e.g. off the blankets) and wear, optionally of another compound. */
+  setTyres(temp: number, wear = 0, compound: TyreCompound = this.compound): void {
+    this.compound = compound;
     this.tyreTemp.fill(temp);
     this.tyreWear.fill(wear);
   }
 
   /** Grip multiplier of one tyre from its temperature and wear. */
   tyreGrip(wheel: number): number {
-    return tyreCondition(this.tyreTemp[wheel], this.tyreWear[wheel], this.spec.tyreOptimalTemp, this.spec.tyreTempWindow);
+    return tyreCondition(this.tyreTemp[wheel], this.tyreWear[wheel], this.compound.optimalTemp, this.spec.tyreTempWindow) * this.compound.grip;
   }
 
   reset(x: number, z: number, yaw: number): void {
@@ -440,11 +443,11 @@ export class Car {
       const heat = (power / TYRE_HEAT_CAPACITY + TYRE_FLEX_HEAT * loads[w] * speed) / mass;
       // Above its window a tyre sheds heat faster (conduction into the track and carcass), which keeps a driver who
       // overworks the tyres on the edge rather than in a runaway.
-      const over = Math.max(0, this.tyreTemp[w] - s.tyreOptimalTemp) / 25;
+      const over = Math.max(0, this.tyreTemp[w] - this.compound.optimalTemp) / 25;
       this.tyreTemp[w] += (heat - cooling * (1 + over) * (this.tyreTemp[w] - AMBIENT)) * dt;
       // Overheated rubber wears faster.
-      const hot = this.tyreTemp[w] > s.tyreOptimalTemp + 15 ? 1.8 : 1;
-      this.tyreWear[w] = Math.min(1, this.tyreWear[w] + power * TYRE_WEAR_PER_JOULE * hot * dt);
+      const hot = this.tyreTemp[w] > this.compound.optimalTemp + 15 ? 1.8 : 1;
+      this.tyreWear[w] = Math.min(1, this.tyreWear[w] + power * TYRE_WEAR_PER_JOULE * this.compound.wear * hot * dt);
     }
   }
 

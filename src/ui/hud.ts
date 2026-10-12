@@ -291,7 +291,7 @@ export class Hud {
     if (this.tyreClock <= 0) {
       this.tyreClock = 0.2;
       for (let w = 0; w < 4; w++) {
-        this.tyres[w].style.background = tyreColour(car.tyreTemp[w], car.spec.tyreOptimalTemp);
+        this.tyres[w].style.background = tyreColour(car.tyreTemp[w], car.compound.optimalTemp);
         this.tyreWear[w].style.transform = `scaleY(${(1 - car.tyreWear[w]).toFixed(2)})`;
       }
       this.tyres[0].parentElement!.title = car.tyreTemp.map((t) => `${t.toFixed(0)}°C`).join(' ');

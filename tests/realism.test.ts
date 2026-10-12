@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Car, type CarControls, type SurfaceProbe } from '../src/physics/Car.ts';
 import { GZ26 } from '../src/physics/carSpec.ts';
-import { tyreCondition } from '../src/physics/tyre.ts';
+import { COMPOUNDS, tyreCondition } from '../src/physics/tyre.ts';
 
 const DT = 1 / 240;
 const asphalt: SurfaceProbe = () => ({ kind: 'track', grip: 1, drag: 0 });
@@ -29,12 +29,27 @@ function topSpeed(setup: (car: Car) => void): number {
 }
 
 test('tyres grip best in their window and lose grip cold, overheated or worn', () => {
-  const at = (t: number, w = 0) => tyreCondition(t, w, GZ26.tyreOptimalTemp, GZ26.tyreTempWindow);
+  const at = (t: number, w = 0) => tyreCondition(t, w, COMPOUNDS.medium.optimalTemp, GZ26.tyreTempWindow);
   assert.equal(at(100), 1);
   assert.ok(at(60) < 0.85, `cold ${at(60)}`);
   assert.ok(at(140) < 0.85, `hot ${at(140)}`);
   assert.ok(at(95) > 0.99);
   assert.ok(Math.abs(at(100, 1) - 0.88) < 1e-9);
+});
+
+test('soft tyres grip more but wear faster than hards', () => {
+  const stint = (compound: (typeof COMPOUNDS)[keyof typeof COMPOUNDS]) => {
+    const car = newCar();
+    car.setTyres(compound.optimalTemp, 0, compound);
+    const grip = car.tyreGrip(0);
+    run(car, 8, controls({ throttle: 1 }));
+    run(car, 6, controls({ throttle: 0.6, steer: 1 }));
+    return { grip, wear: car.tyreWear[0] };
+  };
+  const soft = stint(COMPOUNDS.soft);
+  const hard = stint(COMPOUNDS.hard);
+  assert.ok(soft.grip > hard.grip + 0.03, `grip soft ${soft.grip} hard ${hard.grip}`);
+  assert.ok(soft.wear > hard.wear * 2.5, `wear soft ${soft.wear} hard ${hard.wear}`);
 });
 
 test('cold tyres brake later: the same stop takes longer than on warm tyres', () => {
