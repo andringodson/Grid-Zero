@@ -19,6 +19,20 @@ const SUN_ELEVATION = 38;
 const SUN_AZIMUTH = 215;
 const HAZE = new THREE.Color(0xa9bfd6);
 
+/**
+ * The sky model draws the sun's disc at a brightness near the top of a half-float render target (about 65,000).
+ * On the bloom path that overflows to infinity whenever the sun is in view, and the bloom blur spreads it as NaN
+ * until the whole frame is black. Clamped far below that, the sun still tone-maps to white and still blooms.
+ */
+function clampSky(sky: Sky): Sky {
+  const material = sky.material as THREE.ShaderMaterial;
+  material.fragmentShader = material.fragmentShader.replace(
+    'gl_FragColor = vec4( retColor, 1.0 );',
+    'gl_FragColor = vec4( min( retColor, vec3( 2000.0 ) ), 1.0 );',
+  );
+  return sky;
+}
+
 export function createEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Scene, q: QualitySettings): Environment {
   const sunDirection = new THREE.Vector3().setFromSphericalCoords(
     1,
@@ -27,7 +41,7 @@ export function createEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Sc
   );
 
   // Physically based sky (Preetham model).
-  const sky = new Sky();
+  const sky = clampSky(new Sky());
   // Inside the camera's far plane (6000 m) at every corner of the sky box.
   sky.scale.setScalar(6000);
   const u = sky.material.uniforms;
@@ -44,7 +58,7 @@ export function createEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Sc
   // metal reflect a sky that matches the one on screen.
   const pmrem = new THREE.PMREMGenerator(renderer);
   const envScene = new THREE.Scene();
-  const envSky = new Sky();
+  const envSky = clampSky(new Sky());
   envSky.scale.setScalar(1000);
   envSky.material.uniforms.turbidity.value = u.turbidity.value;
   envSky.material.uniforms.rayleigh.value = u.rayleigh.value;

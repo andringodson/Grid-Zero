@@ -141,7 +141,9 @@ export class Terrain {
       const iz = Math.floor(fz);
       const sx = smoothstep(0, 1, fx - ix);
       const sz = smoothstep(0, 1, fz - iz);
-      const g = (a: number, b: number) => noise[Math.min(latticeCells - 1, b) * latticeCells + Math.min(latticeCells - 1, a)];
+      // Wrapped, so any coordinates (the finer octave samples far outside the map) stay on the lattice.
+      const wrap = (v: number) => ((v % latticeCells) + latticeCells) % latticeCells;
+      const g = (a: number, b: number) => noise[wrap(b) * latticeCells + wrap(a)];
       const a = g(ix, iz);
       const b = g(ix + 1, iz);
       const c = g(ix, iz + 1);
