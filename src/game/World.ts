@@ -62,6 +62,26 @@ export class World {
     return surface;
   };
 
+  /**
+   * Sets the ground under the car from the track: height, slope along and across the car (from the track's
+   * gradient and camber, turned into the car's heading), and the road's vertical curvature.
+   */
+  applyTerrain(car: Car): void {
+    const p = this.projection;
+    const i = p.index;
+    const t = this.track;
+    const rel = car.yaw - p.heading;
+    const c = Math.cos(rel);
+    const s = Math.sin(rel);
+    // Rise per metre along the track and to its right; beyond the kerbs the run-off is level sideways.
+    const along = t.grade[i];
+    const across = Math.abs(p.lateral) <= t.halfWidth + t.kerbWidth ? Math.tan(t.camber[i]) : 0;
+    car.pitch = Math.atan(along * c + across * s);
+    car.roll = Math.atan(-along * s + across * c);
+    car.verticalCurvature = t.verticalCurvature[i] * c * c;
+    car.y = t.heightAt(p);
+  }
+
   /** Runs after each physics step: keeps the car inside the barriers. */
   constrain(car: Car): StepResult {
     const p = this.track.project(car.x, car.z, this.centreHint);

@@ -107,3 +107,31 @@ test('surfaces beyond the kerb follow the run-off', () => {
     }
   }
 });
+
+test('elevation: a closed, smooth profile with realistic gradients and crests', () => {
+  let maxGrade = 0;
+  let maxVert = 0;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let k = 0; k < track.count; k++) {
+    maxGrade = Math.max(maxGrade, Math.abs(track.grade[k]));
+    maxVert = Math.max(maxVert, Math.abs(track.verticalCurvature[k]));
+    lo = Math.min(lo, track.ys[k]);
+    hi = Math.max(hi, track.ys[k]);
+  }
+  assert.ok(hi - lo > 10, `only ${(hi - lo).toFixed(1)} m of elevation change`);
+  assert.ok(maxGrade < 0.07, `grade ${(maxGrade * 100).toFixed(1)}%`);
+  // A crest gentler than 1/1500 m keeps the car on the ground at full speed.
+  assert.ok(maxVert < 1 / 1500, `vertical curvature 1/${(1 / maxVert).toFixed(0)} m`);
+  assert.ok(Math.abs(track.ys[0] - track.ys[track.count - 1]) < 0.1, 'the lap must close on itself');
+});
+
+test('pointAt and heightAt agree on the surface height, camber included', () => {
+  for (const s of [100, 1700, 3000]) {
+    for (const lateral of [-6, 0, 6]) {
+      const p = track.pointAt(s, lateral);
+      const h = track.heightAt(track.project(p.x, p.z));
+      assert.ok(Math.abs(p.y - h) < 0.05, `s ${s} lateral ${lateral}: ${p.y.toFixed(3)} vs ${h.toFixed(3)}`);
+    }
+  }
+});

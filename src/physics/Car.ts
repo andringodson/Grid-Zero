@@ -100,6 +100,13 @@ export class Car {
   airDownforce = 1;
   /** Front wing damage, 0 (intact) to 1 (wing gone): costs front downforce and adds drag. */
   wingDamage = 0;
+  /** Ground under the car, set each step from the track: height (m), slope along the car (rad, nose up
+   * positive), slope across it (rad, right side up positive) and the road's vertical curvature (1/m, positive in a
+   * dip, negative over a crest). */
+  y = 0;
+  pitch = 0;
+  roll = 0;
+  verticalCurvature = 0;
   /** Battery energy, J. */
   ersCharge: number;
   /** Power through the hybrid motor this step, W: positive deploying, negative harvesting. */
@@ -182,6 +189,11 @@ export class Car {
     this.shiftTimer = this.reverseTimer = 0;
   }
 
+  /** Ground height at a body-frame offset from the centre, assuming the ground under the car is a plane. */
+  groundY(forward: number, right: number): number {
+    return this.y + forward * Math.tan(this.pitch) + right * Math.tan(this.roll);
+  }
+
   /** World position of a wheel. */
   wheelPosition(wheel: number): [number, number] {
     const [f, rt] = this.wheelOffsets[wheel];
@@ -253,9 +265,12 @@ export class Car {
     const dfFront = baseDownforce * s.aeroBalanceFront * (1 - 0.45 * this.wingDamage);
     const dfRear = baseDownforce * (1 - s.aeroBalanceFront) * (this.drsOpen ? 0.72 : 1);
     const downforce = dfFront + dfRear;
+    // Weight presses on the tyres less on a slope, less still over a crest (the car goes light) and more in a
+    // compression, by the speed squared times the road's vertical curvature.
+    const gEff = Math.max(0, G * Math.cos(this.pitch) * Math.cos(this.roll) + u2 * this.verticalCurvature);
     const transferLong = (m * this.ax * s.cgHeight) / L;
-    const fzFront = Math.max(0, (m * G * b) / L + dfFront - transferLong);
-    const fzRear = Math.max(0, (m * G * a) / L + dfRear + transferLong);
+    const fzFront = Math.max(0, (m * gEff * b) / L + dfFront - transferLong);
+    const fzRear = Math.max(0, (m * gEff * a) / L + dfRear + transferLong);
     // Cornering to the right (ay > 0) loads the left-hand wheels.
     const transferLat = (m * this.ay * s.cgHeight) / s.trackWidth / 2;
     const loads = [
@@ -367,10 +382,13 @@ export class Car {
 
     // Sum forces in the body frame.
     let fx = fxFront * cosD - fyFront * sinD + fxRear;
-    const fy = fxFront * sinD + fyFront * cosD + fyRear;
+    let fy = fxFront * sinD + fyFront * cosD + fyRear;
     const cdA = s.cdA * this.airDrag * (this.drsOpen ? 0.86 : 1) * (1 + 0.08 * this.wingDamage);
     fx -= 0.5 * AIR_DENSITY * cdA * this.u * Math.abs(this.u);
-    let rolling = s.rollingResistance * (m * G + downforce);
+    // Gravity along a slope: climbing slows the car, descending speeds it up; camber pulls it toward the low side.
+    fx -= m * G * Math.sin(this.pitch);
+    fy -= m * G * Math.sin(this.roll);
+    let rolling = s.rollingResistance * (m * gEff + downforce);
     for (let w = 0; w < 4; w++) rolling += surfaces[w].drag * loads[w];
     fx -= rolling * clamp(this.u / 0.5, -1, 1);
     const yawMoment = a * (fxFront * sinD + fyFront * cosD) - b * fyRear - 300 * this.r;

@@ -154,3 +154,38 @@ test('dirty air and wing damage cost cornering grip', () => {
   assert.ok(dirty < clean - 0.2, `dirty air ${dirty.toFixed(2)} g vs clean ${clean.toFixed(2)} g`);
   assert.ok(damaged < clean - 0.1, `damaged ${damaged.toFixed(2)} g vs clean ${clean.toFixed(2)} g`);
 });
+
+test('climbing slows the car and descending speeds it up', () => {
+  const coast = (pitch: number) => {
+    const car = newCar();
+    run(car, 6, controls({ throttle: 1 }));
+    car.pitch = pitch;
+    run(car, 4, controls({}), (c) => (c.pitch = pitch));
+    return car.speedKmh;
+  };
+  const flat = coast(0);
+  const up = coast(Math.atan(0.05));
+  const down = coast(-Math.atan(0.05));
+  assert.ok(up < flat - 5 && down > flat + 5, `uphill ${up.toFixed(1)}, flat ${flat.toFixed(1)}, downhill ${down.toFixed(1)} km/h`);
+});
+
+test('a crest lightens the car and costs cornering grip; a compression adds it', () => {
+  const peakLat = (vertical: number) => {
+    const car = newCar();
+    run(car, 30, controls({ throttle: 1 }), (c) => {
+      c.verticalCurvature = vertical;
+      c.setTyres(100);
+    });
+    let peak = 0;
+    run(car, 2, controls({ throttle: 0.6, steer: 1 }), (c) => {
+      c.verticalCurvature = vertical;
+      c.setTyres(100);
+      peak = Math.max(peak, Math.abs(c.gLat));
+    });
+    return peak;
+  };
+  const flat = peakLat(0);
+  const crest = peakLat(-1 / 1500);
+  const dip = peakLat(1 / 1500);
+  assert.ok(crest < flat - 0.05 && dip > flat + 0.05, `crest ${crest.toFixed(2)}, flat ${flat.toFixed(2)}, dip ${dip.toFixed(2)} g`);
+});

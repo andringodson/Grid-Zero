@@ -137,6 +137,7 @@ export class Field {
     if (held) return;
     for (const fc of this.cars) {
       const controls = fc.driver ? fc.driver.drive(fc.car, dt) : player;
+      fc.world.applyTerrain(fc.car);
       fc.car.step(dt, controls, fc.world.probe);
       const hit = fc.world.constrain(fc.car);
       fc.impact = Math.max(fc.impact, hit.impact);

@@ -5,6 +5,10 @@ export interface CircuitDefinition {
   points: readonly (readonly [number, number])[];
   /** Full width of the racing surface in metres. */
   width: number;
+  /** Height in metres at each control point. Omit for a flat circuit. */
+  heights?: readonly number[];
+  /** Camber in radians at each control point: positive raises the right-hand edge. Omit for none. */
+  camber?: readonly number[];
 }
 
 /**
@@ -51,4 +55,9 @@ export const HALDEN_RING: CircuitDefinition = {
     [-660, 10],
     [-500, 0],
   ],
+  // Downhill into Turn 1, a climb through the esses to a crest before the sweeper, a long descent down the back
+  // straight, then up again through the chicane and down to the hairpin. Grades stay under about 6%.
+  heights: [0, -1.5, -3, -2, 2, 6, 10, 12.5, 14.5, 14, 11, 8, 5.5, 1.5, 0, 0.5, 3.5, 7.5, 9.5, 10, 9.5, 7, 4, 2, 1.5, 0.8],
+  // Banked a little through the final hairpin and the Turn 4 sweeper (both right-handers: left edge higher).
+  camber: [0, 0, 0, 0, 0, 0, 0, 0, 0, -0.03, -0.04, -0.03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -0.02, -0.05, -0.04, 0],
 };

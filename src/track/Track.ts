@@ -21,6 +21,8 @@ export interface TrackProjection {
 
 export interface TrackPoint {
   x: number;
+  /** Height of the track surface at this point. */
+  y: number;
   z: number;
   heading: number;
 }
@@ -72,6 +74,12 @@ export class Track {
   readonly heading: Float64Array;
   /** Signed curvature (1/m); positive is a right-hand bend. */
   readonly curvature: Float64Array;
+  /** Centreline height (m), gradient (rise per metre) and vertical curvature (1/m; negative over a crest). */
+  readonly ys: Float64Array;
+  readonly grade: Float64Array;
+  readonly verticalCurvature: Float64Array;
+  /** Camber (radians); positive raises the right-hand edge. */
+  readonly camber: Float64Array;
   readonly kerbLeft: Uint8Array;
   readonly kerbRight: Uint8Array;
   /** Distance from the centreline to the barrier on each side. */
@@ -143,6 +151,46 @@ export class Track {
       rawCurv[k] = wrapAngle(this.heading[this.wrap(k + 1)] - this.heading[this.wrap(k - 1)]) / (2 * this.spacing);
     }
     this.curvature = this.smooth(rawCurv, 3);
+
+    // 3b. Elevation: heights and camber given at the control points, interpolated along the lap with smooth
+    //     (Catmull-Rom Hermite) curves, then smoothed so crests and dips stay within what a real circuit has.
+    const ctrlS = pts.map((_, i) => cum[i * DENSE_STEPS]);
+    const along = (values: readonly number[] | undefined): Float64Array => {
+      const out = new Float64Array(count);
+      if (!values) return out;
+      let seg = 0;
+      for (let k = 0; k < count; k++) {
+        const s = k * this.spacing;
+        while (seg < n - 1 && ctrlS[seg + 1] <= s) seg++;
+        const i0 = seg;
+        const i1 = (seg + 1) % n;
+        const s0 = ctrlS[i0];
+        const s1 = i1 === 0 ? total : ctrlS[i1];
+        const span = s1 - s0;
+        const t = (s - s0) / span;
+        const sPrev = i0 === 0 ? ctrlS[n - 1] - total : ctrlS[i0 - 1];
+        const sNext = (i1 + 1) % n === 0 ? total + (i1 === 0 ? ctrlS[1] : 0) : ctrlS[(i1 + 1) % n] + (i1 === 0 ? total : 0);
+        const v0 = values[i0];
+        const v1 = values[i1];
+        const m0 = ((v1 - values[(i0 - 1 + n) % n]) / (s1 - sPrev)) * span;
+        const m1 = ((values[(i1 + 1) % n] - v0) / (sNext - s0)) * span;
+        const t2 = t * t;
+        const t3 = t2 * t;
+        out[k] = (2 * t3 - 3 * t2 + 1) * v0 + (t3 - 2 * t2 + t) * m0 + (-2 * t3 + 3 * t2) * v1 + (t3 - t2) * m1;
+      }
+      return out;
+    };
+    this.ys = this.smooth(this.smooth(along(def.heights), 10), 10);
+    this.camber = this.smooth(along(def.camber), 8);
+    this.grade = new Float64Array(count);
+    const rawVert = new Float64Array(count);
+    for (let k = 0; k < count; k++) {
+      const prev = this.ys[this.wrap(k - 1)];
+      const next = this.ys[this.wrap(k + 1)];
+      this.grade[k] = (next - prev) / (2 * this.spacing);
+      rawVert[k] = (next - 2 * this.ys[k] + prev) / (this.spacing * this.spacing);
+    }
+    this.verticalCurvature = this.smooth(rawVert, 4);
 
     // 4. Kerbs wherever the track bends meaningfully, extended a little either side of the corner.
     this.kerbLeft = new Uint8Array(count);
@@ -235,7 +283,26 @@ export class Track {
     const cx = this.xs[i] + (this.xs[i2] - this.xs[i]) * t;
     const cz = this.zs[i] + (this.zs[i2] - this.zs[i]) * t;
     const heading = this.heading[i] + wrapAngle(this.heading[i2] - this.heading[i]) * t;
-    return { x: cx - Math.sin(heading) * lateral, z: cz + Math.cos(heading) * lateral, heading };
+    const y = this.surfaceY(i, lateral) + (this.surfaceY(i2, lateral) - this.surfaceY(i, lateral)) * t;
+    return { x: cx - Math.sin(heading) * lateral, y, z: cz + Math.cos(heading) * lateral, heading };
+  }
+
+  /**
+   * Height of the ground at sample i, `lateral` metres from the centreline. Camber tilts the track and kerbs;
+   * beyond the kerbs the run-off continues level from the edge.
+   */
+  surfaceY(i: number, lateral: number): number {
+    const edge = this.halfWidth + this.kerbWidth;
+    return this.ys[i] + Math.max(-edge, Math.min(edge, lateral)) * Math.tan(this.camber[i]);
+  }
+
+  /** Ground height under a projected position, interpolated between samples. */
+  heightAt(p: TrackProjection): number {
+    const i2 = this.wrap(p.index + 1);
+    let t = p.s / this.spacing - p.index;
+    if (t < 0) t += this.count;
+    t = Math.min(1, Math.max(0, t));
+    return this.surfaceY(p.index, p.lateral) * (1 - t) + this.surfaceY(i2, p.lateral) * t;
   }
 
   /**
