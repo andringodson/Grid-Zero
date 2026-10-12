@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Car } from '../physics/Car.ts';
 import type { Livery } from '../game/teams.ts';
+import { carbonWeaveTexture, raceNumberTexture, sidewallTexture } from './textures.ts';
 
 /**
  * Procedural open-wheel car. Local axes: +x forward, +y up, +z right; the origin is the centre of gravity on the
@@ -108,6 +109,14 @@ function mergeByMaterial(group: THREE.Group): void {
   for (const k of keep) group.add(k);
 }
 
+/** One weave texture shared by every car. */
+let sharedWeave: THREE.Texture | null = null;
+function carbonWeave(): THREE.Texture {
+  sharedWeave ??= carbonWeaveTexture();
+  sharedWeave.wrapS = sharedWeave.wrapT = THREE.RepeatWrapping;
+  return sharedWeave;
+}
+
 function contactShadowTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
@@ -120,9 +129,44 @@ function contactShadowTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(c);
 }
 
+/**
+ * Carbon-fibre twill on a material, projected from the body's own coordinates on three axes and blended by the
+ * surface normal. Merged car parts have no texture coordinates, so a triplanar projection is what lets every
+ * part share the weave at the same scale.
+ */
+function applyCarbonWeave(material: THREE.MeshPhysicalMaterial, weave: THREE.Texture): void {
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.weaveMap = { value: weave };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+        varying vec3 vObjPos;
+        varying vec3 vObjNormal;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vObjPos = position;
+        vObjNormal = normal;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform sampler2D weaveMap;
+        varying vec3 vObjPos;
+        varying vec3 vObjNormal;`)
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        vec3 bw = pow(abs(normalize(vObjNormal)), vec3(4.0));
+        bw /= bw.x + bw.y + bw.z;
+        vec3 wp = vObjPos * 18.0;
+        float weave = texture2D(weaveMap, wp.yz).r * bw.x + texture2D(weaveMap, wp.xz).r * bw.y + texture2D(weaveMap, wp.xy).r * bw.z;
+        diffuseColor.rgb *= mix(0.45, 1.6, weave);`,
+      );
+  };
+  // Shares one compiled program across every car's carbon.
+  material.customProgramCacheKey = () => 'carbon-weave';
+}
+
 export interface CarVisual {
   root: THREE.Group;
-  update(car: Car): void;
+  /** Places the model on the car; `dt` (game seconds since the last update) drives brake heat and the DRS flap. */
+  update(car: Car, dt?: number): void;
 }
 
 export function buildCarModel(car: Car, livery: Livery, castShadows: boolean): CarVisual {
@@ -152,6 +196,7 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean): C
     clearcoat: 0.7,
     clearcoatRoughness: 0.2,
   });
+  applyCarbonWeave(carbon, carbonWeave());
   const black = new THREE.MeshStandardMaterial({ color: 0x050607, roughness: 0.5 });
   const titanium = new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.3, metalness: 1 });
 
@@ -268,7 +313,6 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean): C
   // Rear wing: main plane, flap, endplates, beam wing and swan-neck mount.
   const rwX = -b - 0.95;
   body.add(box(0.3, 0.03, 1.0, rwX, 0.86, 0, carbon, 0, 0.12));
-  body.add(box(0.2, 0.02, 1.0, rwX + 0.2, 0.97, 0, accent, 0, 0.35));
   body.add(box(0.26, 0.025, 0.9, rwX + 0.05, 0.46, 0, carbon, 0, 0.1));
   for (const side of [-1, 1]) {
     body.add(box(0.75, 0.62, 0.02, rwX + 0.1, 0.7, side * 0.5, paint));
@@ -282,7 +326,6 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean): C
   // Wheels: a steering pivot (front only) holding a spinning wheel.
   const tyreMat = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.82 });
   const compoundMat = new THREE.MeshStandardMaterial({ color: livery.compound ?? 0xd92020, roughness: 0.6 });
-  const letterMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.6 });
   const pivots: THREE.Group[] = [];
   const spinners: THREE.Group[] = [];
   const positions: [number, number][] = [
@@ -313,13 +356,6 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean): C
     band.position.z = outer * (width / 2 + 0.006);
     band.rotation.y = outer > 0 ? 0 : Math.PI;
     spinner.add(band);
-    for (let k = 0; k < 3; k++) {
-      const mark = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.025), letterMat);
-      const ang = (k / 3) * Math.PI * 2;
-      mark.position.set(Math.cos(ang) * 0.325, Math.sin(ang) * 0.325, outer * (width / 2 + 0.007));
-      mark.rotation.set(0, outer > 0 ? 0 : Math.PI, ang + Math.PI / 2);
-      spinner.add(mark);
-    }
     const cover = new THREE.Mesh(new THREE.CircleGeometry(0.2, 24), carbon);
     cover.position.z = outer * (width / 2 + 0.008);
     cover.rotation.y = outer > 0 ? 0 : Math.PI;
@@ -355,6 +391,56 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean): C
   mergeByMaterial(body);
   for (const spinner of spinners) mergeByMaterial(spinner);
 
+  // Parts added after merging keep their texture coordinates or move on their own.
+  const decal = (map: THREE.Texture) =>
+    new THREE.MeshStandardMaterial({ map, transparent: true, depthWrite: false, roughness: 0.35, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+
+  // Race number on top of the nose (reading forward) and on each side of the engine cover.
+  const numberMat = decal(raceNumberTexture(livery.number ?? 1));
+  const noseNumber = new THREE.PlaneGeometry(0.2, 0.2).rotateZ(-Math.PI / 2).rotateX(-Math.PI / 2);
+  const nose = new THREE.Mesh(noseNumber, numberMat);
+  nose.position.set(a + 0.5, 0.472, 0);
+  nose.rotation.z = -0.17;
+  body.add(nose);
+  for (const side of [-1, 1]) {
+    const n = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.26), numberMat);
+    n.position.set(-0.95, 0.72, side * 0.222);
+    // Each side reads front to back for someone looking at it.
+    n.rotation.y = side > 0 ? 0 : Math.PI;
+    body.add(n);
+  }
+
+  // DRS: the upper rear-wing flap hinges at its leading edge and swings flat when the system opens.
+  const flapPivot = new THREE.Group();
+  flapPivot.position.set(rwX + 0.1, 0.95, 0);
+  const flap = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 1.0), accent);
+  flap.position.set(0.1, 0, 0);
+  flapPivot.add(flap);
+  body.add(flapPivot);
+  const FLAP_CLOSED = 0.35;
+  const FLAP_OPEN = -0.3;
+
+  // Brakes: a glowing ring between the wheel cover and the rim edge, front and rear heated separately.
+  const glowFront = new THREE.MeshStandardMaterial({ color: 0x1a1210, emissive: 0xff3a08, emissiveIntensity: 0, roughness: 0.4, metalness: 0.6 });
+  const glowRear = glowFront.clone();
+  const lettering = decal(sidewallTexture(0.355, 0.33));
+  spinners.forEach((spinner, w) => {
+    const [, wz] = positions[w];
+    const outer = Math.sign(wz);
+    const width = w < 2 ? 0.305 : 0.405;
+    const face = outer * (width / 2 + 0.009);
+    const letters = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.355, 48), lettering);
+    letters.position.z = face;
+    letters.rotation.y = outer > 0 ? 0 : Math.PI;
+    spinner.add(letters);
+    const glow = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.228, 32), w < 2 ? glowFront : glowRear);
+    glow.position.z = face;
+    glow.rotation.y = outer > 0 ? 0 : Math.PI;
+    spinner.add(glow);
+  });
+  let brakeHeatFront = 0;
+  let brakeHeatRear = 0;
+
   root.traverse((o) => {
     if (o instanceof THREE.Mesh && o !== shadow) {
       o.castShadow = castShadows;
@@ -364,7 +450,7 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean): C
 
   return {
     root,
-    update(c: Car) {
+    update(c: Car, dt = 0) {
       root.position.set(c.x, 0, c.z);
       root.rotation.y = -c.yaw;
       // Body pitches under braking and acceleration and rolls toward the outside of a corner.
@@ -374,6 +460,18 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean): C
       pivots[0].rotation.y = -c.steerAngle;
       pivots[1].rotation.y = -c.steerAngle;
       for (let w = 0; w < 4; w++) spinners[w].rotation.z = -c.wheelRotation[w];
+
+      // Hard braking from speed heats the discs to glowing; airflow cools them down the next straight.
+      const speed = Math.abs(c.u);
+      const heat = c.brake * (speed / 80) * 1.6 * dt;
+      const cool = (0.25 + speed / 160) * dt;
+      brakeHeatFront = THREE.MathUtils.clamp(brakeHeatFront + heat * spec.brakeBiasFront * 2 - brakeHeatFront * cool, 0, 1);
+      brakeHeatRear = THREE.MathUtils.clamp(brakeHeatRear + heat * (1 - spec.brakeBiasFront) * 2 - brakeHeatRear * cool, 0, 1);
+      glowFront.emissiveIntensity = Math.max(0, (brakeHeatFront - 0.3) / 0.7) * 1.4;
+      glowRear.emissiveIntensity = Math.max(0, (brakeHeatRear - 0.3) / 0.7) * 1.4;
+
+      const flapTarget = c.drsOpen ? FLAP_OPEN : FLAP_CLOSED;
+      flapPivot.rotation.z += (flapTarget - flapPivot.rotation.z) * Math.min(1, dt * 12);
     },
   };
 }

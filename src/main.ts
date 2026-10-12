@@ -64,7 +64,7 @@ let wingWarned = false;
 const game = new Game({
   container,
   track,
-  team: onCompound(teamOf(settings.teamId), COMPOUNDS[settings.compound]),
+  team: liveryFor(teamOf(settings.teamId), 0, COMPOUNDS[settings.compound]),
   quality: QUALITY[settings.quality],
   assists: settings.assists,
   input,
@@ -211,7 +211,7 @@ const menu = new Menu(document.body, settings, track.name, {
   onTeam(team) {
     settings = { ...settings, teamId: team.id };
     saveSettings(settings);
-    game.setTeam(onCompound(team, COMPOUNDS[settings.compound]));
+    game.setTeam(liveryFor(team, 0, COMPOUNDS[settings.compound]));
   },
   async onSettings(next: Settings, changed) {
     if (changed === 'touchSteering') {
@@ -229,7 +229,7 @@ const menu = new Menu(document.body, settings, track.name, {
       return true;
     }
     game.car.assists = { ...settings.assists };
-    if (changed === 'compound') game.setTeam(onCompound(teamOf(settings.teamId), COMPOUNDS[settings.compound]));
+    if (changed === 'compound') game.setTeam(liveryFor(teamOf(settings.teamId), 0, COMPOUNDS[settings.compound]));
     touch.showPaddles(!settings.assists.autoGears);
     audio.setVolume(settings.volume);
     return true;
@@ -237,8 +237,9 @@ const menu = new Menu(document.body, settings, track.name, {
 });
 
 /** A team's livery with the sidewall band of the tyres fitted. */
-function onCompound(team: Team, compound: TyreCompound): Team {
-  return { ...team, livery: { ...team.livery, compound: compound.colour } };
+/** A team's livery for one of its cars: the driver's race number and the sidewall band of the tyres fitted. */
+function liveryFor(team: Team, driver: 0 | 1, compound: TyreCompound): Team {
+  return { ...team, livery: { ...team.livery, compound: compound.colour, number: team.numbers[driver] } };
 }
 
 /** Rivals split their tyre choice the way a real grid does: mostly mediums, some softs, a few hards. */
@@ -273,9 +274,9 @@ function startSession(next: SessionMode): void {
 
   // Quick race: rivals from the other teams first, then team-mates, on a shuffled grid with the player mid-pack.
   const mine = teamOf(settings.teamId);
-  const pool: { team: Team; name: string }[] = [
-    ...TEAMS.filter((t) => t !== mine).map((t) => ({ team: t, name: t.drivers[0] })),
-    ...TEAMS.map((t) => ({ team: t, name: t.drivers[1] })),
+  const pool: { team: Team; name: string; driver: 0 | 1 }[] = [
+    ...TEAMS.filter((t) => t !== mine).map((t) => ({ team: t, name: t.drivers[0], driver: 0 as const })),
+    ...TEAMS.map((t) => ({ team: t, name: t.drivers[1], driver: 1 as const })),
   ];
   const count = OPPONENTS[settings.quality];
   const rivals = pool.slice(0, count);
@@ -290,7 +291,7 @@ function startSession(next: SessionMode): void {
   const compounds = rivals.map(() => pickCompound());
   const opponents = rivals.map((r, i) => ({
     id: `ai-${i}`,
-    team: onCompound(r.team, compounds[i]),
+    team: liveryFor(r.team, r.driver, compounds[i]),
     slot: slots[i],
     skill: {
       pace: lo + Math.random() * (hi - lo),

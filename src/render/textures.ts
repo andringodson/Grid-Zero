@@ -397,3 +397,81 @@ export function adAtlasTexture(anisotropy: number): THREE.CanvasTexture {
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   return tex;
 }
+
+/** 2x2 twill carbon weave as a brightness pattern: tows over-under, each with a soft sheen across it. */
+export function carbonWeaveTexture(): THREE.CanvasTexture {
+  const size = 64;
+  const [c, ctx] = canvas(size);
+  const img = ctx.createImageData(size, size);
+  const cell = size / 4;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const cx = Math.floor(x / cell);
+      const cy = Math.floor(y / cell);
+      // Twill: the weave steps one tow per row.
+      const warp = (cx + cy) % 4 < 2;
+      const along = warp ? (y % cell) / cell : (x % cell) / cell;
+      const across = warp ? (x % cell) / cell : (y % cell) / cell;
+      const sheen = Math.sin(across * Math.PI) * (0.75 + 0.25 * Math.sin(along * Math.PI));
+      const v = (warp ? 0.55 : 0.35) + sheen * 0.45;
+      const i = (y * size + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.min(255, v * 255);
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return finish(c, 4, false);
+}
+
+/** A race number, white with a dark outline on a transparent background, for decals. */
+export function raceNumberTexture(num: number): THREE.CanvasTexture {
+  const [c, ctx] = canvas(128);
+  ctx.clearRect(0, 0, 128, 128);
+  ctx.font = 'italic 900 84px Arial, Helvetica, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 10;
+  ctx.strokeStyle = 'rgba(10,10,12,0.9)';
+  ctx.strokeText(String(num), 64, 68);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(String(num), 64, 68);
+  const tex = finish(c, 4);
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+}
+
+/**
+ * Sidewall lettering laid out round a circle, for a RingGeometry whose planar UVs span [-outer, outer]. The tyre
+ * brand is invented.
+ */
+export function sidewallTexture(outer: number, textRadius: number): THREE.CanvasTexture {
+  const size = 256;
+  const [c, ctx] = canvas(size);
+  ctx.clearRect(0, 0, size, size);
+  ctx.translate(size / 2, size / 2);
+  const r = (textRadius / outer) * (size / 2);
+  ctx.font = 'bold 15px Arial, Helvetica, sans-serif';
+  ctx.fillStyle = 'rgba(236,236,236,0.95)';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (const [text, start] of [
+    ['KORVEX', 0],
+    ['RACE SLICK', Math.PI * 0.5],
+    ['KORVEX', Math.PI],
+    ['RACE SLICK', Math.PI * 1.5],
+  ] as const) {
+    const step = 0.085;
+    const span = (text.length - 1) * step;
+    for (let k = 0; k < text.length; k++) {
+      const ang = start - span / 2 + k * step;
+      ctx.save();
+      ctx.rotate(ang);
+      ctx.translate(0, -r);
+      ctx.fillText(text[k], 0, 0);
+      ctx.restore();
+    }
+  }
+  const tex = finish(c, 4);
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+}

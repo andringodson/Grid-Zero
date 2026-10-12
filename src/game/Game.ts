@@ -235,8 +235,10 @@ export class Game {
     if (impact > 2) this.rig.bump(Math.min(1, impact / 25));
     this.onFrame?.(this, { dt, input, impact, kerb });
 
-    this.visual.update(this.car);
-    for (const fc of this.field.cars) this.opponentVisuals.get(fc.id)?.update(fc.car);
+    // Game time, so brake glow and the DRS flap pause with the game.
+    const visualDt = this.paused ? 0 : dt;
+    this.visual.update(this.car, visualDt);
+    for (const fc of this.field.cars) this.opponentVisuals.get(fc.id)?.update(fc.car, visualDt);
     if (!this.paused) {
       this.skids.update(this.field.cars);
       this.particles.update(dt, this.field.cars);
