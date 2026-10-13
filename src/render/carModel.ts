@@ -70,6 +70,45 @@ function box(w: number, h: number, d: number, x: number, y: number, z: number, m
   return m;
 }
 
+/**
+ * A wing element: a cambered NACA-style aerofoil, inverted for downforce, extruded across the car. The leading
+ * edge sits at the origin with the chord running backward (-x); `angle` lifts the trailing edge.
+ */
+function wing(chord: number, span: number, thickness: number, camber: number, angle: number): THREE.BufferGeometry {
+  const n = 14;
+  const upper: [number, number][] = [];
+  const lower: [number, number][] = [];
+  const p = 0.4;
+  for (let i = 0; i <= n; i++) {
+    // Cosine spacing packs points around the rounded leading edge.
+    const x = (1 - Math.cos((i / n) * Math.PI)) / 2;
+    const t = 5 * thickness * (0.2969 * Math.sqrt(x) - 0.126 * x - 0.3516 * x * x + 0.2843 * x ** 3 - 0.1015 * x ** 4);
+    const yc = x < p ? (camber / (p * p)) * (2 * p * x - x * x) : (camber / ((1 - p) * (1 - p))) * (1 - 2 * p + 2 * p * x - x * x);
+    // Inverted: the camber bows downward, so the wing pushes the car onto the road.
+    upper.push([x, -yc + t]);
+    lower.push([x, -yc - t]);
+  }
+  const shape = new THREE.Shape();
+  shape.moveTo(-upper[n][0] * chord, upper[n][1] * chord);
+  for (let i = n - 1; i >= 0; i--) shape.lineTo(-upper[i][0] * chord, upper[i][1] * chord);
+  for (let i = 1; i <= n; i++) shape.lineTo(-lower[i][0] * chord, lower[i][1] * chord);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: span, bevelEnabled: false, curveSegments: 1 });
+  geo.translate(0, 0, -span / 2);
+  geo.rotateZ(-angle);
+  return geo;
+}
+
+/** A flat plate from an outline in the car's side view (x forward, y up), `thickness` across. */
+function endplate(outline: [number, number][], thickness = 0.02): THREE.BufferGeometry {
+  const shape = new THREE.Shape();
+  shape.moveTo(outline[0][0], outline[0][1]);
+  for (let i = 1; i < outline.length; i++) shape.lineTo(outline[i][0], outline[i][1]);
+  shape.closePath();
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false });
+  geo.translate(0, 0, -thickness / 2);
+  return geo;
+}
+
 /** A thin rod between two points: suspension arms, wing pylons. */
 function rod(a: THREE.Vector3, b: THREE.Vector3, radius: number, mat: THREE.Material): THREE.Mesh {
   const dir = b.clone().sub(a);
@@ -300,24 +339,68 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean): C
   body.add(new THREE.Mesh(new THREE.TubeGeometry(haloCurve, 40, 0.032, 8, false), carbon));
   body.add(rod(new THREE.Vector3(0.42, 0.93, 0), new THREE.Vector3(0.6, 0.72, 0), 0.03, carbon));
 
-  // Front wing: main plane, two flaps, endplates and pylons.
+  // Front wing: three cambered elements stepping up and back, shaped endplates, pylons to the nose.
   const fwX = a + 0.95;
-  body.add(box(0.36, 0.02, 1.9, fwX, 0.1, 0, accent, 0, -0.04));
-  body.add(box(0.22, 0.015, 1.75, fwX - 0.2, 0.15, 0, carbon, 0, 0.25));
-  body.add(box(0.18, 0.015, 1.6, fwX - 0.33, 0.2, 0, accent, 0, 0.45));
+  body.add(new THREE.Mesh(wing(0.34, 1.92, 0.07, 0.06, -0.04).translate(fwX + 0.19, 0.09, 0), accent));
+  body.add(new THREE.Mesh(wing(0.22, 1.78, 0.08, 0.07, 0.25).translate(fwX - 0.05, 0.135, 0), carbon));
+  body.add(new THREE.Mesh(wing(0.18, 1.62, 0.08, 0.07, 0.45).translate(fwX - 0.21, 0.19, 0), accent));
   for (const side of [-1, 1]) {
-    body.add(box(0.55, 0.22, 0.02, fwX - 0.12, 0.17, side * 0.96, paint));
+    body.add(
+      new THREE.Mesh(
+        endplate([
+          [0.2, 0.04],
+          [-0.42, 0.04],
+          [-0.44, 0.24],
+          [-0.3, 0.29],
+          [0.12, 0.2],
+        ]).translate(fwX, 0, side * 0.965),
+        paint,
+      ),
+    );
     body.add(rod(new THREE.Vector3(fwX - 0.05, 0.11, side * 0.12), new THREE.Vector3(fwX - 0.2, 0.3, side * 0.07), 0.015, carbon));
   }
 
-  // Rear wing: main plane, flap, endplates, beam wing and swan-neck mount.
+  // Rear wing: cambered main plane and beam wing between shaped endplates on a swan-neck mount. The upper flap is
+  // added later, on its own hinge, so it can open for DRS.
   const rwX = -b - 0.95;
-  body.add(box(0.3, 0.03, 1.0, rwX, 0.86, 0, carbon, 0, 0.12));
-  body.add(box(0.26, 0.025, 0.9, rwX + 0.05, 0.46, 0, carbon, 0, 0.1));
+  body.add(new THREE.Mesh(wing(0.32, 0.98, 0.1, 0.07, 0.1).translate(rwX + 0.17, 0.84, 0), carbon));
+  body.add(new THREE.Mesh(wing(0.24, 0.86, 0.08, 0.07, 0.15).translate(rwX + 0.21, 0.47, 0), carbon));
   for (const side of [-1, 1]) {
-    body.add(box(0.75, 0.62, 0.02, rwX + 0.1, 0.7, side * 0.5, paint));
+    body.add(
+      new THREE.Mesh(
+        endplate([
+          [0.27, 0.38],
+          [-0.25, 0.38],
+          [-0.28, 0.98],
+          [-0.18, 1.07],
+          [0.24, 1.04],
+          [0.27, 0.6],
+        ]).translate(rwX, 0, side * 0.5),
+        paint,
+      ),
+    );
   }
   body.add(rod(new THREE.Vector3(-2.2, 0.4, 0), new THREE.Vector3(rwX + 0.05, 0.86, 0), 0.025, carbon));
+
+  // Diffuser: the floor sweeps up under the rear, split by vertical strakes.
+  const diffuserTilt = -Math.atan2(0.22, 0.5);
+  body.add(box(0.546, 0.015, 1.0, -2.2, 0.19, 0, carbon, 0, diffuserTilt));
+  for (const z of [-0.42, -0.21, 0, 0.21, 0.42]) body.add(box(0.5, 0.11, 0.012, -2.2, 0.24, z, carbon, 0, diffuserTilt));
+
+  // Engine-cover fin from the airbox back to the rear wing.
+  body.add(
+    new THREE.Mesh(
+      endplate([
+        [-1.0, 1.0],
+        [-2.45, 0.97],
+        [-2.45, 0.62],
+        [-2.0, 0.56],
+        [-1.4, 0.8],
+      ], 0.012),
+      paint,
+    ),
+  );
+
   // Rain light.
   body.add(
     box(0.02, 0.06, 0.1, rwX - 0.15, 0.4, 0, new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1010, emissiveIntensity: 0.6 })),
@@ -412,13 +495,13 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean): C
 
   // DRS: the upper rear-wing flap hinges at its leading edge and swings flat when the system opens.
   const flapPivot = new THREE.Group();
-  flapPivot.position.set(rwX + 0.1, 0.95, 0);
-  const flap = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 1.0), accent);
-  flap.position.set(0.1, 0, 0);
-  flapPivot.add(flap);
+  flapPivot.position.set(rwX - 0.13, 0.95, 0);
+  flapPivot.add(new THREE.Mesh(wing(0.22, 0.98, 0.08, 0.07, 0), accent));
   body.add(flapPivot);
-  const FLAP_CLOSED = 0.35;
-  const FLAP_OPEN = -0.3;
+  // Rotation about the hinge: negative lifts the trailing edge (a steep flap); near zero is open.
+  const FLAP_CLOSED = -0.75;
+  const FLAP_OPEN = -0.12;
+  flapPivot.rotation.z = FLAP_CLOSED;
 
   // Brakes: a glowing ring between the wheel cover and the rim edge, front and rear heated separately.
   const glowFront = new THREE.MeshStandardMaterial({ color: 0x1a1210, emissive: 0xff3a08, emissiveIntensity: 0, roughness: 0.4, metalness: 0.6 });
