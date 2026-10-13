@@ -37,6 +37,8 @@ export class Field {
   readonly line: RacingLine;
   readonly cars: FieldCar[] = [];
   private wasHeld = false;
+  /** Water on the track, 0 to 1, from the weather. */
+  wetness = 0;
 
   constructor(track: Track, line: RacingLine) {
     this.track = track;
@@ -137,6 +139,8 @@ export class Field {
     if (held) return;
     for (const fc of this.cars) {
       const controls = fc.driver ? fc.driver.drive(fc.car, dt) : player;
+      fc.car.wetness = this.wetness;
+      fc.world.wetness = this.wetness;
       fc.world.applyTerrain(fc.car);
       fc.car.step(dt, controls, fc.world.probe);
       const hit = fc.world.constrain(fc.car);

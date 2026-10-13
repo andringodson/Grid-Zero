@@ -142,8 +142,14 @@ export class Driver {
     for (let w = 0; w < 4; w++) tyreGrip = Math.min(tyreGrip, car.tyreGrip(w));
     // Same for dirty air: following another car, part of the downforce (and so the grip) is missing.
     const aero = (DOWNFORCE_PER_MASS * speed * speed) / car.mass;
-    const airGrip = (G + aero * car.airDownforce) / (G + aero);
-    const vTarget = this.targetSpeed(p.s, speed) * Math.sqrt(tyreGrip * airGrip);
+    // A damaged front wing costs front downforce, and the front limits the car in corners: back off to match.
+    const airGrip = (G + aero * car.airDownforce * (1 - 0.35 * car.wingDamage)) / (G + aero);
+    // In the wet the rubbered line is slippery too, and drivers leave a margin for puddles and the car ahead's spray.
+    const wetGrip = 1 - 0.04 * car.wetness;
+    // On slicks (no tread to clear water) a wet track is far less predictable still.
+    const slicks = car.compound.id !== 'inter' && car.compound.id !== 'wet';
+    const wetMargin = 1 - (slicks ? 0.18 : 0.06) * car.wetness;
+    const vTarget = this.targetSpeed(p.s, speed) * Math.sqrt(tyreGrip * airGrip * wetGrip) * wetMargin;
     const err = vTarget - speed;
     this.updateHumanity(p.s, err < -2, dt);
     let throttle = 0;

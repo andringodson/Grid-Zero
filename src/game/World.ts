@@ -29,6 +29,7 @@ export interface StepResult {
 /** The racing line is rubbered in and grips a little better; off it, marbles and dust grip a little worse. */
 const LINE_GRIP_BONUS = 0.02;
 const MARBLES_GRIP_LOSS = 0.03;
+const WET_LINE_LOSS = 0.04;
 
 /** Puts a car on a track: surfaces under its wheels, barrier contact, and returning it to the circuit. */
 export class World {
@@ -36,6 +37,9 @@ export class World {
   private wheelHints = [-1, -1, -1, -1];
   private centreHint = -1;
   private line: Float64Array | null = null;
+  /** Water on the track, 0 to 1, set from the weather. */
+  wetness = 0;
+  private readonly wetSurface: WheelSurface[] = [0, 1, 2, 3].map(() => ({ ...SURFACES.grass }));
   private readonly asphalt: WheelSurface[] = [0, 1, 2, 3].map(() => ({ ...SURFACES.track }));
   projection: TrackProjection;
 
@@ -53,12 +57,24 @@ export class World {
     const p = this.track.project(x, z, this.wheelHints[wheel]);
     this.wheelHints[wheel] = p.index;
     const kind = this.track.surfaceAt(p);
-    if (kind !== 'track' || !this.line) return SURFACES[kind];
+    if (kind !== 'track') {
+      if (this.wetness <= 0) return SURFACES[kind];
+      // Wet paint on kerbs and run-off is like ice; wet grass not much better.
+      const base = SURFACES[kind];
+      const surface = this.wetSurface[wheel];
+      surface.kind = base.kind;
+      surface.drag = base.drag;
+      surface.grip = base.grip * (1 - (kind === 'kerb' || kind === 'runoff' ? 0.35 : 0.3) * this.wetness);
+      return surface;
+    }
+    if (!this.line) return SURFACES[kind];
     const off = Math.abs(p.lateral - this.line[p.index]);
     const onLine = 1 - smoothstep(1.5, 4.5, off);
     const marbles = smoothstep(4, 8, off);
     const surface = this.asphalt[wheel];
-    surface.grip = 1 + LINE_GRIP_BONUS * onLine - MARBLES_GRIP_LOSS * marbles;
+    // In the dry the rubbered-in line grips best; in the wet, rubber and water make it the slipperiest strip.
+    const lineEffect = LINE_GRIP_BONUS * (1 - this.wetness) - WET_LINE_LOSS * this.wetness;
+    surface.grip = 1 + lineEffect * onLine - MARBLES_GRIP_LOSS * marbles * (1 - this.wetness);
     return surface;
   };
 

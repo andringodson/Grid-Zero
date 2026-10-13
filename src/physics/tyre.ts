@@ -34,24 +34,37 @@ export function peakSlip(k: PacejkaCoefficients): number {
 }
 
 export interface TyreCompound {
-  id: 'soft' | 'medium' | 'hard';
+  id: 'soft' | 'medium' | 'hard' | 'inter' | 'wet';
   name: string;
   /** Sidewall band colour, as on real race tyres. */
   colour: number;
-  /** Peak grip relative to the medium. */
+  /** Peak grip relative to the medium, on a dry track. */
   grip: number;
+  /** Peak grip on a fully wet track. Slicks can't clear water and aquaplane; treaded tyres pump it away. */
+  wetGrip: number;
   /** Wear rate relative to the medium. */
   wear: number;
   /** Temperature of peak grip, deg C. */
   optimalTemp: number;
 }
 
-/** Softer rubber grips harder and warms up sooner but wears out faster; harder rubber is the reverse. */
+/**
+ * Softer rubber grips harder and warms up sooner but wears out faster; harder rubber is the reverse. Intermediates
+ * and full wets give up dry grip for grip in the rain, and run cooler: on a dry track they overheat and wear fast.
+ * Crossovers: slick to intermediate at about 20% wetness, intermediate to full wet at about 55%.
+ */
 export const COMPOUNDS: Record<TyreCompound['id'], TyreCompound> = {
-  soft: { id: 'soft', name: 'Soft', colour: 0xe0242c, grip: 1.025, wear: 2, optimalTemp: 95 },
-  medium: { id: 'medium', name: 'Medium', colour: 0xf2c400, grip: 1, wear: 1, optimalTemp: 100 },
-  hard: { id: 'hard', name: 'Hard', colour: 0xf2f2f2, grip: 0.985, wear: 0.55, optimalTemp: 104 },
+  soft: { id: 'soft', name: 'Soft', colour: 0xe0242c, grip: 1.025, wetGrip: 0.5, wear: 2, optimalTemp: 95 },
+  medium: { id: 'medium', name: 'Medium', colour: 0xf2c400, grip: 1, wetGrip: 0.5, wear: 1, optimalTemp: 100 },
+  hard: { id: 'hard', name: 'Hard', colour: 0xf2f2f2, grip: 0.985, wetGrip: 0.48, wear: 0.55, optimalTemp: 104 },
+  inter: { id: 'inter', name: 'Inter', colour: 0x2fa84f, grip: 0.92, wetGrip: 0.82, wear: 1.6, optimalTemp: 75 },
+  wet: { id: 'wet', name: 'Wet', colour: 0x2a6fdb, grip: 0.85, wetGrip: 0.88, wear: 1.4, optimalTemp: 65 },
 };
+
+/** A compound's peak grip at a track wetness from 0 (dry) to 1 (standing water). */
+export function compoundGrip(c: TyreCompound, wetness: number): number {
+  return c.grip + (c.wetGrip - c.grip) * Math.min(1, Math.max(0, wetness));
+}
 
 /**
  * Grip multiplier from tyre surface temperature and wear. Grip peaks in the operating window and falls away

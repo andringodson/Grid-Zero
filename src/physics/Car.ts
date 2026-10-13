@@ -1,6 +1,6 @@
 import { approach, clamp, damp, interpolateTable } from '../math.ts';
 import type { CarSpec } from './carSpec.ts';
-import { COMPOUNDS, loadSensitiveMu, pacejka, peakSlip, tyreCondition, type TyreCompound } from './tyre.ts';
+import { COMPOUNDS, compoundGrip, loadSensitiveMu, pacejka, peakSlip, tyreCondition, type TyreCompound } from './tyre.ts';
 
 export interface CarControls {
   /** 0..1 */
@@ -88,6 +88,8 @@ export class Car {
   fuel = 30;
   /** Tyre surface temperature per wheel, deg C. */
   readonly tyreTemp = [100, 100, 100, 100];
+  /** Water on the track under the car, 0 (dry) to 1 (standing water); set each step from the weather. */
+  wetness = 0;
   /** Rubber fitted: softer grips more and wears faster. */
   compound: TyreCompound = COMPOUNDS.medium;
   /** Tyre wear per wheel, 0 (new) to 1 (worn through). */
@@ -172,7 +174,8 @@ export class Car {
 
   /** Grip multiplier of one tyre from its temperature and wear. */
   tyreGrip(wheel: number): number {
-    return tyreCondition(this.tyreTemp[wheel], this.tyreWear[wheel], this.compound.optimalTemp, this.spec.tyreTempWindow) * this.compound.grip;
+    const condition = tyreCondition(this.tyreTemp[wheel], this.tyreWear[wheel], this.compound.optimalTemp, this.spec.tyreTempWindow);
+    return condition * compoundGrip(this.compound, this.wetness);
   }
 
   reset(x: number, z: number, yaw: number): void {
@@ -447,7 +450,8 @@ export class Car {
     const longSlipRear = lockRear ? speed : speed * (spinning + (0.012 * Math.abs(fxRear)) / gripRear);
     const axleLoadFront = Math.max(loads[0] + loads[1], 1);
     const axleLoadRear = Math.max(loads[2] + loads[3], 1);
-    const cooling = TYRE_COOLING * (1 + speed / 40);
+    // Spray and standing water cool tyres hard: slicks in the rain fall out of their window.
+    const cooling = TYRE_COOLING * (1 + speed / 40) * (1 + 1.5 * this.wetness);
     for (let w = 0; w < 4; w++) {
       const front = w < 2;
       const share = loads[w] / (front ? axleLoadFront : axleLoadRear);
