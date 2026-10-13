@@ -14,6 +14,7 @@ import { Particles } from '../render/effects/particles.ts';
 import { SkidMarks } from '../render/effects/skidMarks.ts';
 import { createSpeedBlurPass } from '../render/speedBlur.ts';
 import { buildTrackside, type Trackside } from '../render/trackside.ts';
+import { GhostCar } from '../render/ghostCar.ts';
 import { createEnvironment, type Environment } from '../render/environment.ts';
 import type { QualitySettings } from '../render/quality.ts';
 import { buildScenery } from '../render/scenery.ts';
@@ -21,7 +22,8 @@ import { GROUND_DROP, Terrain } from '../render/terrain.ts';
 import { buildTrackMeshes } from '../render/trackMesh.ts';
 import type { Track } from '../track/Track.ts';
 import { Field, type FieldCar } from './Field.ts';
-import type { Team } from './teams.ts';
+import type { GhostPose } from './ghost.ts';
+import type { Livery, Team } from './teams.ts';
 import { World } from './World.ts';
 
 export const PHYSICS_HZ = 240;
@@ -66,6 +68,9 @@ export class Game {
   private readonly env: Environment;
   private visual: CarVisual;
   private readonly opponentVisuals = new Map<string, CarVisual>();
+  private ghost: GhostCar | null = null;
+  private livery: Livery;
+  private ghostLivery: Livery | null = null;
   private readonly castShadows: boolean;
   private readonly composer: EffectComposer | null;
   private speedBlur: ReturnType<typeof createSpeedBlurPass> | null = null;
@@ -138,6 +143,7 @@ export class Game {
     this.scene.add(this.particles.mesh);
     this.player = this.field.addPlayer(PLAYER_ID, this.car, this.world);
     this.castShadows = q.shadows;
+    this.livery = o.team.livery;
     this.visual = buildCarModel(this.car, o.team.livery, q.shadows);
     this.scene.add(this.visual.root);
     this.visual.update(this.car);
@@ -206,12 +212,30 @@ export class Game {
     this.rig.snap(this.car);
   }
 
+  /** Shows the Time Trial ghost at a pose, or hides it (null). Built on first use, in the player's livery. */
+  setGhost(pose: GhostPose | null, livery: Livery): void {
+    if (!pose && !this.ghost) return;
+    if (!this.ghost || this.ghostLivery !== livery) {
+      if (this.ghost) this.disposeVisual({ root: this.ghost.root, update: () => {} });
+      this.ghost = new GhostCar(this.car, livery);
+      this.ghostLivery = livery;
+      this.scene.add(this.ghost.root);
+    }
+    this.ghost.show(pose);
+  }
+
   /** Lights `count` columns of the start gantry over the grid (0 turns them all off). */
   setStartLights(count: number): void {
     this.trackside.setStartLights(count);
   }
 
+  /** The player's current livery, for the ghost. */
+  get playerLivery(): Livery {
+    return this.livery;
+  }
+
   setTeam(team: Team): void {
+    this.livery = team.livery;
     this.disposeVisual(this.visual);
     this.visual = buildCarModel(this.car, team.livery, this.castShadows);
     this.scene.add(this.visual.root);
@@ -253,6 +277,9 @@ export class Game {
   private resize(container: HTMLElement): void {
     const w = container.clientWidth;
     const h = container.clientHeight;
+    // A minimised window or a rotation in progress can report 0 x 0: that would make the camera's aspect NaN and
+    // the post-processing targets empty. Keep the last good size until there is a real one.
+    if (w === 0 || h === 0) return;
     this.renderer.setSize(w, h);
     this.composer?.setSize(w, h);
     this.rig.camera.aspect = w / h;

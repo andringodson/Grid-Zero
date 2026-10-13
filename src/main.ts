@@ -9,7 +9,8 @@ import { LapTimer } from './game/LapTimer.ts';
 import { findDrsZones, inZone } from './game/drs.ts';
 import { Race, type RaceEntrant } from './game/Race.ts';
 import { DIFFICULTY_CONSISTENCY, DIFFICULTY_PACE, loadSettings, saveSettings, type Settings } from './game/settings.ts';
-import { loadBestLap, saveBestLap } from './game/storage.ts';
+import { GhostRecorder, ghostPose, type GhostLap, type GhostPose } from './game/ghost.ts';
+import { loadBestLap, loadGhost, saveBestLap, saveGhost } from './game/storage.ts';
 import { TEAMS, type Team } from './game/teams.ts';
 import { Input } from './input/Input.ts';
 import { COMPOUNDS, type TyreCompound } from './physics/tyre.ts';
@@ -60,6 +61,10 @@ let resultsCountdown = -1;
 const drsZones = findDrsZones(track);
 const wasOff = new Set<string>();
 let wingWarned = false;
+/** Time Trial ghost: the personal best lap, replayed as a see-through car. */
+const recorder = new GhostRecorder();
+let ghostLap: GhostLap | null = loadGhost(track.id);
+const ghostScratch: GhostPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0 };
 
 const game = new Game({
   container,
@@ -97,7 +102,21 @@ const game = new Game({
       const events = timer.update(g.world.projection.s, info.dt, g.world.allWheelsOff(g.car));
       if (session === 'trial') {
         hud.onTiming(events);
-        for (const e of events) if (e.type === 'lap' && e.personalBest) saveBestLap(track.id, e.record);
+        for (const e of events) {
+          if (e.type !== 'lap') continue;
+          // The lap just finished becomes the ghost if it's a personal best; recording starts over either way.
+          if (e.personalBest) {
+            saveBestLap(track.id, e.record);
+            ghostLap = recorder.finish(e.record.time);
+            saveGhost(track.id, ghostLap);
+          }
+          recorder.reset();
+        }
+        if (timer.started) {
+          recorder.add(timer.lapTime, g.car);
+          const pose = ghostLap && timer.lap > 0 ? ghostPose(ghostLap, timer.lapTime, ghostScratch) : null;
+          g.setGhost(pose, g.playerLivery);
+        }
       } else {
         // In a race the lap toasts would bury the race messages; only flag invalid laps.
         hud.onTiming(events.filter((e) => e.type === 'invalidated'));
@@ -263,6 +282,8 @@ function startSession(next: SessionMode): void {
   game.setStartLights(0);
   rivalsAudio.silence();
 
+  recorder.reset();
+  game.setGhost(null, game.playerLivery);
   if (next === 'trial') {
     game.toGrid(0);
     prepareCars(TRIAL_FUEL);
