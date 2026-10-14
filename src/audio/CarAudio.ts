@@ -61,6 +61,12 @@ export class CarAudio {
   private readonly rumble: OscillatorNode;
   private readonly rumbleGain: GainNode;
   private readonly groundGain: GainNode;
+  private readonly rainGain: GainNode;
+  private readonly hissFilter: BiquadFilterNode;
+  private readonly hissGain: GainNode;
+  /** How hard it's raining (0..1) and how wet the road is (0..1), set by the weather. */
+  rain = 0;
+  wetness = 0;
   private readonly noise: AudioBuffer;
   private lastGear = 1;
   private lastThrottle = 0;
@@ -188,6 +194,25 @@ export class CarAudio {
     this.groundGain = ctx.createGain();
     this.groundGain.gain.value = 0;
     noiseSource().connect(groundFilter).connect(this.groundGain).connect(this.master);
+
+    // Rain: a broad hiss of drops on the bodywork and the track around it.
+    const rainHigh = ctx.createBiquadFilter();
+    rainHigh.type = 'highpass';
+    rainHigh.frequency.value = 1400;
+    const rainLow = ctx.createBiquadFilter();
+    rainLow.type = 'lowpass';
+    rainLow.frequency.value = 7000;
+    this.rainGain = ctx.createGain();
+    this.rainGain.gain.value = 0;
+    noiseSource().connect(rainHigh).connect(rainLow).connect(this.rainGain).connect(this.master);
+
+    // Tyres on standing water: a tearing hiss that rises with speed.
+    this.hissFilter = ctx.createBiquadFilter();
+    this.hissFilter.type = 'bandpass';
+    this.hissFilter.Q.value = 0.7;
+    this.hissGain = ctx.createGain();
+    this.hissGain.gain.value = 0;
+    noiseSource().connect(this.hissFilter).connect(this.hissGain).connect(this.master);
   }
 
   /** Browsers start audio suspended until the player interacts; call from a click or key handler. */
@@ -268,6 +293,10 @@ export class CarAudio {
     set(this.rumbleGain.gain, kerb > 0 && speed > 3 ? 0.18 * Math.min(1, speed / 20) : 0, 0.02);
     const grass = 1 - onAsphalt;
     set(this.groundGain.gain, grass * Math.min(1, speed / 15) * 0.5, 0.05);
+
+    set(this.rainGain.gain, this.rain * 0.09, 0.3);
+    set(this.hissFilter.frequency, 1200 + speed * 30);
+    set(this.hissGain.gain, this.wetness * onAsphalt * Math.min(1, speed / 60) * 0.16);
 
     if (impact > 2) this.burst(Math.min(1, impact / 20), 400, 0.18);
   }

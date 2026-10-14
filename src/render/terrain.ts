@@ -3,6 +3,7 @@ import { seededRandom } from '../math.ts';
 import type { Track } from '../track/Track.ts';
 import type { QualitySettings } from './quality.ts';
 import { grassTextures } from './textures.ts';
+import { markWettable } from './wet.ts';
 
 /** The ground sits this far below the track surface so the two never z-fight. */
 export const GROUND_DROP = 0.06;
@@ -389,6 +390,7 @@ export class Terrain {
           vec4 wild = texture2D(meadowMap, vMapUv * 0.61 + vec2(0.37, 0.11));
           diffuseColor *= mix(mown, wild, smoothstep(0.15, 0.85, vFarness));`);
     };
+    markWettable(0.1, material);
     const mesh = new THREE.Mesh(geo, material);
     mesh.receiveShadow = true;
     mesh.name = 'terrain';

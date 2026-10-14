@@ -1,9 +1,10 @@
 import type { Assists } from '../physics/Car.ts';
-import type { TyreCompound } from '../physics/tyre.ts';
+import { COMPOUNDS, type TyreCompound } from '../physics/tyre.ts';
 import { detectQualityTier, type QualityTier } from '../render/quality.ts';
 import type { TouchSteering } from '../ui/touch.ts';
 import { loadSetting, saveSetting } from './storage.ts';
 import { TEAMS } from './teams.ts';
+import type { WeatherMode } from './weather.ts';
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
 
@@ -16,6 +17,7 @@ export interface Settings {
   difficulty: Difficulty;
   raceLaps: number;
   compound: TyreCompound['id'];
+  weather: WeatherMode;
 }
 
 /** AI pace range per difficulty, as a fraction of the racing line's limit. Hard is close to a clean flying lap. */
@@ -46,7 +48,8 @@ export function loadSettings(): Settings {
     teamId: TEAMS.some((t) => t.id === saved.teamId) ? saved.teamId! : TEAMS[0].id,
     difficulty: saved.difficulty === 'easy' || saved.difficulty === 'hard' ? saved.difficulty : 'medium',
     raceLaps: (RACE_LAPS as readonly number[]).includes(saved.raceLaps ?? 0) ? saved.raceLaps! : 3,
-    compound: saved.compound === 'soft' || saved.compound === 'hard' ? saved.compound : 'medium',
+    compound: saved.compound && saved.compound in COMPOUNDS ? saved.compound : 'medium',
+    weather: saved.weather === 'wet' || saved.weather === 'changing' ? saved.weather : 'dry',
   };
 }
 

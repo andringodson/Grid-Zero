@@ -12,6 +12,7 @@ import {
   wireMeshTexture,
 } from './textures.ts';
 import { GROUND_Y, ribbon } from './trackMesh.ts';
+import { markWettable } from './wet.ts';
 
 /** The gravel and run-off reach to just short of the tyre wall in front of the barrier. */
 const TYRE_WALL_INSET = 0.55;
@@ -76,6 +77,8 @@ function runoff(track: Track, q: QualitySettings): THREE.Group {
     polygonOffsetFactor: -1,
     polygonOffsetUnits: -1,
   });
+  markWettable(1, runoffMat);
+  markWettable(0.15, gravelMat);
   for (const side of [-1, 1]) {
     const s = sideOf(track, side);
     for (const [kind, mat, repeat, y] of [

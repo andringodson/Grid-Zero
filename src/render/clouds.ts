@@ -24,6 +24,8 @@ uniform vec3 sunDirection;
 uniform vec2 offset;
 uniform float coverage;
 uniform float cloudHeight;
+/** 0 for fair-weather cumulus, 1 for a dark rain deck. */
+uniform float gloom;
 varying vec3 vWorldPosition;
 
 float hash(vec2 p) {
@@ -93,8 +95,10 @@ void main() {
   float fwd = max(mu, 0.0);
   col *= 1.0 - 0.32 * d * smoothstep(0.2, 1.0, fwd);
   col += sunCol * (pow(fwd, 12.0) * 1.2 + pow(fwd, 4.0) * 0.12) * (1.0 - d) * (1.0 - d);
+  // Rain cloud: thick, grey and lit from above only, so the sun's glow fades out of it.
+  col = mix(col, vec3(0.42, 0.45, 0.5) * (0.75 + 0.35 * lit), gloom);
   // Distant cloud takes on the haze colour.
-  col = mix(vec3(0.82, 0.87, 0.94), col, smoothstep(0.0, 0.3, dir.y));
+  col = mix(mix(vec3(0.82, 0.87, 0.94), vec3(0.55, 0.58, 0.62), gloom), col, smoothstep(0.0, 0.3, dir.y));
 
   gl_FragColor = vec4(col, d * horizon * 0.96);
   #include <tonemapping_fragment>
@@ -107,6 +111,8 @@ export interface CloudLayer {
   /** A second copy sharing the material, for baking into the reflection map; `radius` must sit inside that camera's far plane. */
   makeMesh(radius: number): THREE.Mesh;
   update(dt: number): void;
+  /** 0 fair weather to 1 heavy rain: more cloud, darker and greyer. */
+  setOvercast(amount: number): void;
 }
 
 /**
@@ -122,6 +128,7 @@ export function createCloudLayer(q: QualitySettings, sunDirection: THREE.Vector3
       offset: { value: new THREE.Vector2(17.3, -4.1) },
       coverage: { value: 0.5 },
       cloudHeight: { value: CLOUD_HEIGHT },
+      gloom: { value: 0 },
     },
     defines: { OCTAVES: OCTAVES[q.tier] },
     vertexShader,
@@ -153,6 +160,10 @@ export function createCloudLayer(q: QualitySettings, sunDirection: THREE.Vector3
     update(dt: number) {
       offset.x += WIND.x * dt;
       offset.y += WIND.y * dt;
+    },
+    setOvercast(amount: number) {
+      material.uniforms.coverage.value = 0.5 - 0.42 * amount;
+      material.uniforms.gloom.value = amount;
     },
   };
 }

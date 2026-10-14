@@ -30,6 +30,16 @@ test('changing weather brings rain partway through, and the track wets gradually
   assert.ok(w.wetness > 0.2 && w.wetness < 0.4, `wetness ${w.wetness}`);
 });
 
+test('cloud builds before the rain arrives, so a shower never falls from a clear sky', () => {
+  const w = new Weather('changing', () => 0.5);
+  run(w, w.rainAt - 50);
+  assert.equal(w.cloud, 0);
+  run(w, 49);
+  assert.equal(w.rain, 0);
+  assert.ok(w.cloud > 0.9, `cloud ${w.cloud} at the first drops`);
+  assert.equal(new Weather('wet').cloud, 1);
+});
+
 test('crossovers: slicks best when dry, intermediates when damp, full wets in standing water', () => {
   const best = (w: number) =>
     Object.values(COMPOUNDS).reduce((a, b) => (compoundGrip(b, w) > compoundGrip(a, w) ? b : a)).id;

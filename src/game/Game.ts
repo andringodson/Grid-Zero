@@ -11,6 +11,7 @@ import { GZ26 } from '../physics/carSpec.ts';
 import { CameraRig } from '../render/cameraRig.ts';
 import { buildCarModel, type CarVisual } from '../render/carModel.ts';
 import { Particles } from '../render/effects/particles.ts';
+import { Rain } from '../render/effects/rain.ts';
 import { SkidMarks } from '../render/effects/skidMarks.ts';
 import { createSpeedBlurPass } from '../render/speedBlur.ts';
 import { buildTrackside, type Trackside } from '../render/trackside.ts';
@@ -20,6 +21,7 @@ import type { QualitySettings } from '../render/quality.ts';
 import { buildScenery } from '../render/scenery.ts';
 import { GROUND_DROP, Terrain } from '../render/terrain.ts';
 import { buildTrackMeshes } from '../render/trackMesh.ts';
+import { applyWetness, collectWettable } from '../render/wet.ts';
 import type { Track } from '../track/Track.ts';
 import { Field, type FieldCar } from './Field.ts';
 import type { GhostPose } from './ghost.ts';
@@ -78,6 +80,11 @@ export class Game {
   private readonly trackside: Trackside;
   readonly terrain: Terrain;
   private readonly particles: Particles;
+  private readonly rain: Rain;
+  private readonly wettable: THREE.MeshStandardMaterial[];
+  private rainAmount = 0;
+  private shownSky = { cloud: -1, rain: -1 };
+  private shownWetness = -1;
   private readonly input: Input;
   private readonly onFrame?: GameOptions['onFrame'];
   private accumulator = 0;
@@ -141,6 +148,9 @@ export class Game {
     this.scene.add(this.skids.mesh);
     this.particles = new Particles(q, this.env.sunDirection);
     this.scene.add(this.particles.mesh);
+    this.rain = new Rain(q);
+    this.scene.add(this.rain.mesh);
+    this.wettable = collectWettable(this.scene);
     this.player = this.field.addPlayer(PLAYER_ID, this.car, this.world);
     this.castShadows = q.shadows;
     this.livery = o.team.livery;
@@ -222,6 +232,26 @@ export class Game {
       this.scene.add(this.ghost.root);
     }
     this.ghost.show(pose);
+  }
+
+  /**
+   * The weather on screen: `cloud` (0..1) sets the sky and light, `rain` (0..1) the falling rain and haze, and
+   * `wetness` (0..1) how dark and glossy the track looks and how much spray the cars throw up.
+   */
+  setWeather(cloud: number, rain: number, wetness: number): void {
+    const sky = this.shownSky;
+    const moved = (a: number, b: number) => Math.abs(a - b) > 0.002 || (a === 0) !== (b === 0);
+    if (moved(cloud, sky.cloud) || moved(rain, sky.rain)) {
+      this.env.setWeather(cloud, rain);
+      sky.cloud = cloud;
+      sky.rain = rain;
+    }
+    this.rainAmount = rain;
+    if (Math.abs(wetness - this.shownWetness) > 0.004) {
+      applyWetness(this.wettable, wetness);
+      this.shownWetness = wetness;
+    }
+    this.particles.wetness = wetness;
   }
 
   /** Lights `count` columns of the start gantry over the grid (0 turns them all off). */
@@ -362,12 +392,13 @@ export class Game {
     }
     if (!this.paused) {
       this.skids.update(this.field.cars);
-      this.particles.update(dt, this.field.cars);
+      this.particles.update(dt, this.field.cars, this.rig.camera.position);
     }
     if (this.showcase) this.rig.showcase(this.car, dt);
     else this.rig.update(this.car, dt, Math.abs(this.car.u) > 5 ? kerb : 0);
     this.env.follow(this.visual.root.position);
     this.env.update(dt);
+    this.rain.update(this.paused ? 0 : dt, this.rainAmount, this.rig.camera);
     // Speed blur from about 150 km/h, never in the menus or the cockpit-free showcase.
     const speedBlur = this.showcase || this.paused ? 0 : THREE.MathUtils.clamp((Math.abs(this.car.u) - 42) / 50, 0, 1) * 0.035;
     this.speedBlur?.setStrength(speedBlur);

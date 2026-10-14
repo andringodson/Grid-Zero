@@ -2,6 +2,7 @@ import { formatLapTime } from '../game/LapTimer.ts';
 import type { Standing } from '../game/Race.ts';
 import { RACE_LAPS, type Difficulty, type Settings } from '../game/settings.ts';
 import { TEAMS, type Team } from '../game/teams.ts';
+import type { WeatherMode } from '../game/weather.ts';
 import type { Assists } from '../physics/Car.ts';
 import { COMPOUNDS } from '../physics/tyre.ts';
 import type { QualityTier } from '../render/quality.ts';
@@ -201,8 +202,22 @@ export class Menu {
     }
     race.appendChild(laps);
 
+    // Weather.
+    const weather = this.section(panel, 'Weather', 'Changing starts dry and brings rain part-way through: time to think about tyres.');
+    const sky = document.createElement('div');
+    sky.className = 'menu-seg';
+    for (const [mode, label] of [['dry', 'DRY'], ['wet', 'WET'], ['changing', 'CHANGING']] as [WeatherMode, string][]) {
+      const b = this.button(sky, label, () => void apply({ ...this.settings, weather: mode }, 'weather'), 'menu-seg-btn');
+      b.setAttribute('aria-pressed', String(this.settings.weather === mode));
+    }
+    weather.appendChild(sky);
+
     // Tyres.
-    const tyres = this.section(panel, 'Tyres', 'Soft grips most but wears fastest; hard lasts but needs heat in it.');
+    const tyres = this.section(
+      panel,
+      'Tyres',
+      'Soft grips most but wears fastest; hard lasts but needs heat. Inters for a damp track, full wets for standing water.',
+    );
     const compounds = document.createElement('div');
     compounds.className = 'menu-seg';
     for (const c of Object.values(COMPOUNDS)) {

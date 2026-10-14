@@ -11,8 +11,17 @@ export interface Environment {
   follow(target: THREE.Vector3): void;
   /** Advances anything that moves on its own, such as the clouds. */
   update(dt: number): void;
+  /**
+   * `cloud` 0 fair to 1 a full rain deck: overcast sky, a dimmed sun and flat grey light. `rain` 0..1 brings the
+   * haze in closer and greyer.
+   */
+  setWeather(cloud: number, rain: number): void;
   dispose(): void;
 }
+
+const RAIN_HAZE = new THREE.Color(0x868d95);
+const FILL_SKY = new THREE.Color(0xcfe3ff);
+const RAIN_FILL = new THREE.Color(0xc4c9cf);
 
 /** Mid-afternoon sun: high enough for crisp shadows, low enough to model the car's shape. */
 const SUN_ELEVATION = 38;
@@ -26,10 +35,14 @@ const HAZE = new THREE.Color(0xa9bfd6);
  */
 function clampSky(sky: Sky): Sky {
   const material = sky.material as THREE.ShaderMaterial;
-  material.fragmentShader = material.fragmentShader.replace(
-    'gl_FragColor = vec4( retColor, 1.0 );',
-    'gl_FragColor = vec4( min( retColor, vec3( 2000.0 ) ), 1.0 );',
-  );
+  // Under a full rain deck no blue gets through anywhere, down to the horizon: `overcast` greys the whole dome.
+  material.uniforms.overcast = { value: 0 };
+  material.fragmentShader = material.fragmentShader
+    .replace('void main() {', 'uniform float overcast;\nvoid main() {')
+    .replace(
+      'gl_FragColor = vec4( retColor, 1.0 );',
+      'gl_FragColor = vec4( mix( min( retColor, vec3( 2000.0 ) ), vec3( 0.5, 0.52, 0.55 ), overcast ), 1.0 );',
+    );
   return sky;
 }
 
@@ -102,7 +115,7 @@ export function createEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Sc
   scene.add(sun);
   scene.add(sun.target);
 
-  const fill = new THREE.HemisphereLight(0xcfe3ff, 0x4a5a32, 0.35);
+  const fill = new THREE.HemisphereLight(FILL_SKY, 0x4a5a32, 0.35);
   scene.add(fill);
 
   const texel = q.shadows ? 80 / q.shadowMapSize : 1;
@@ -119,6 +132,25 @@ export function createEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Sc
     },
     update(dt: number) {
       clouds.update(dt);
+    },
+    setWeather(cloud: number, rain: number) {
+      const r = Math.min(1, Math.max(0, cloud));
+      const wet = Math.min(1, Math.max(0, rain));
+      clouds.setOvercast(r);
+      // Wet air scatters every colour alike: the blue goes out of the sky and it turns a bright grey.
+      u.turbidity.value = 1.6 + 8.4 * r;
+      u.rayleigh.value = 1.2 * (1 - 0.75 * r);
+      u.overcast.value = Math.min(1, r * 1.3);
+      // Under a rain deck the sun barely gets through and the light comes evenly from the whole sky.
+      sun.intensity = 4.2 * (1 - 0.85 * r);
+      fill.intensity = 0.35 * (1 + 0.5 * r);
+      fill.color.copy(FILL_SKY).lerp(RAIN_FILL, r);
+      scene.environmentIntensity = 0.55 * (1 - 0.3 * r);
+      const fog = scene.fog as THREE.Fog;
+      // Cloud alone greys the haze a little; rain fills the air with it.
+      fog.color.copy(HAZE).lerp(RAIN_HAZE, Math.max(0.5 * r, wet));
+      fog.near = q.drawDistance * 0.25 * (1 - 0.7 * wet);
+      fog.far = q.drawDistance * (1 - 0.15 * r - 0.45 * wet);
     },
     dispose() {
       envTarget.dispose();

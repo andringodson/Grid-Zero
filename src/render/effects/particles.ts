@@ -9,6 +9,7 @@ const SMOKE = 0;
 const DUST = 1;
 const CLUMP = 2;
 const SPARK = 3;
+const SPRAY = 4;
 
 interface Budget {
   /** Most particles alive at once. */
@@ -20,11 +21,14 @@ interface Budget {
 }
 
 const BUDGET: Record<QualitySettings['tier'], Budget> = {
-  low: { capacity: 40, rate: 0.25, sparks: false, grass: false },
-  medium: { capacity: 180, rate: 0.5, sparks: false, grass: true },
-  high: { capacity: 520, rate: 1, sparks: true, grass: true },
-  ultra: { capacity: 900, rate: 1.4, sparks: true, grass: true },
+  low: { capacity: 80, rate: 0.25, sparks: false, grass: false },
+  medium: { capacity: 360, rate: 0.5, sparks: false, grass: true },
+  high: { capacity: 900, rate: 1, sparks: true, grass: true },
+  ultra: { capacity: 1500, rate: 1.4, sparks: true, grass: true },
 };
+
+/** Cars further than this from the camera throw nothing up: it would be fogged out or gone before it was seen. */
+const EMIT_RANGE = 260;
 
 /** Kerb strikes throw sparks off the floor's skid plank only at serious speed. */
 const SPARK_SPEED = 45;
@@ -43,7 +47,7 @@ void main() {
   float kind = iData.z;
   vec4 mvPosition = modelViewMatrix * vec4(iPos, 1.0);
   vec2 corner = position.xy;
-  if (kind > 2.5) {
+  if (kind > 2.5 && kind < 3.5) {
     // Sparks streak along their direction of travel on screen.
     vec3 vv = (modelViewMatrix * vec4(iVel, 0.0)).xyz;
     float speed = length(vv.xy);
@@ -59,6 +63,8 @@ void main() {
   }
   vUv = position.xy + 0.5;
   vAlpha = iData.y;
+  // Spray thins out right in front of the lens, or the chase camera would always be blinded by the car's own.
+  if (kind > 3.5) vAlpha *= smoothstep(2.0, 9.0, -mvPosition.z);
   vKind = kind;
   gl_Position = projectionMatrix * mvPosition;
   #include <fog_vertex>
@@ -73,7 +79,7 @@ varying float vAlpha;
 varying float vKind;
 #include <fog_pars_fragment>
 void main() {
-  if (vKind > 2.5) {
+  if (vKind > 2.5 && vKind < 3.5) {
     // Additive: colour with zero alpha adds to whatever is behind under premultiplied blending.
     float core = smoothstep(0.5, 0.0, length(vCorner));
     gl_FragColor = vec4(vec3(1.0, 0.56, 0.2) * 5.0, 1.0);
@@ -84,7 +90,10 @@ void main() {
   }
   float a = texture2D(map, vUv).a;
   vec3 base = vec3(0.86, 0.86, 0.88);
-  if (vKind > 1.5) {
+  if (vKind > 3.5) {
+    // Spray: fine water mist, a cooler white than tyre smoke.
+    base = vec3(0.8, 0.83, 0.86);
+  } else if (vKind > 1.5) {
     // Clods of turf: small and solid.
     a = smoothstep(0.25, 0.5, a);
     base = vec3(0.1, 0.12, 0.05);
@@ -113,7 +122,8 @@ void main() {
 }`;
 
 /**
- * Tyre smoke, grass and dust thrown up by wheels off the track, and sparks from the floor over kerbs. One pool of
+ * Tyre smoke, grass and dust thrown up by wheels off the track, spray off a wet track, and sparks from the floor
+ * over kerbs. One pool of
  * camera-facing quads drawn in a single call: premultiplied-alpha blending lets soft smoke and additive sparks share
  * the same material. Simulated on the CPU into preallocated arrays, so nothing is allocated per frame.
  */
@@ -139,6 +149,8 @@ export class Particles {
   /** Ground height for particles about to be spawned. */
   private spawnGround = 0;
   private readonly sunWorld: THREE.Vector3;
+  /** How wet the track is, 0..1: wet tyres throw up spray. */
+  wetness = 0;
 
   constructor(q: QualitySettings, sunDirection: THREE.Vector3) {
     this.budget = BUDGET[q.tier];
@@ -197,14 +209,18 @@ export class Particles {
     };
   }
 
-  /** Emits from every car, then moves, grows and fades the live particles. */
-  update(dt: number, cars: readonly HasCar[]): void {
+  /** Emits from every car near the camera, then moves, grows and fades the live particles. */
+  update(dt: number, cars: readonly HasCar[], camera: THREE.Vector3): void {
     if (dt <= 0) return;
-    for (const { car } of cars) this.emit(car, dt);
+    for (const { car } of cars) {
+      const d = Math.hypot(car.x - camera.x, car.z - camera.z);
+      // Distant cars get a thinner share of the pool, so the cars around the camera never run it dry.
+      if (d < EMIT_RANGE) this.emit(car, dt, Math.min(1, 1.6 - (1.4 * d) / EMIT_RANGE));
+    }
     this.simulate(dt);
   }
 
-  private emit(car: Car, dt: number): void {
+  private emit(car: Car, dt: number, share: number): void {
     const b = this.budget;
     const speed = car.speed;
     const c = Math.cos(car.yaw);
@@ -212,6 +228,8 @@ export class Particles {
     const vx = car.u * c - car.v * s;
     const vz = car.u * s + car.v * c;
     let kerb = 0;
+    // Water squeezed out of the tread is thrown up behind the car as a cloud of spray, mostly by the rears.
+    const spray = this.wetness > 0.08 && speed > 8 ? this.wetness * Math.min(1.5, (speed / 50) ** 1.2) * share : 0;
     for (let w = 0; w < 4; w++) {
       const surface = car.wheelSurface[w];
       const x = wheelX(car, w);
@@ -222,12 +240,15 @@ export class Particles {
       if (surface === 'grass' || surface === 'gravel') {
         if (!b.grass || speed < 5) continue;
         const k = Math.min(1, speed / 40);
-        // Gravel throws a cloud of stone dust; grass throws clods of turf.
+        // Gravel throws a cloud of stone dust; grass throws clods of turf. Wet ground throws water instead of dust.
         const gravel = surface === 'gravel';
-        this.spawnMany((gravel ? 45 : 18) * k * b.rate * dt, DUST, x, z, vx, vz);
+        const dry = 1 - this.wetness;
+        this.spawnMany((gravel ? 45 : 18) * k * dry * b.rate * dt, DUST, x, z, vx, vz);
         this.spawnMany((gravel ? 6 : 30) * k * b.rate * dt, CLUMP, x, z, vx, vz);
+        if (this.wetness > 0.08) this.spawnMany(14 * k * this.wetness * share * b.rate * dt, SPRAY, x, z, vx, vz, this.wetness);
         continue;
       }
+      if (spray > 0) this.spawnMany((w >= 2 ? 34 : 8) * spray * b.rate * dt, SPRAY, x, z, vx, vz, this.wetness);
       const scrub = tyreScrub(car, w);
       // Wheelspin smokes even at walking pace; lockups and slides need some speed to heat the rubber.
       const spinning = w >= 2 && car.wheelSpin > 0.15;
@@ -278,6 +299,16 @@ export class Particles {
       this.size0[i] = 0.7 + r() * 0.4;
       this.growth[i] = 1.6 + r() * 0.9;
       this.alpha0[i] = 0.25 + 0.3 * strength;
+    } else if (kind === SPRAY) {
+      // The cloud hangs in the air behind the car, dragged a little way along by its wake.
+      ux = vx * 0.3 + spread(3);
+      uz = vz * 0.3 + spread(3);
+      uy = 1.2 + r() * 2.4;
+      y = 0.4;
+      this.life[i] = 1.2 + r() * 1;
+      this.size0[i] = 1 + r() * 0.7;
+      this.growth[i] = 2.8 + r() * 1.4;
+      this.alpha0[i] = (0.16 + r() * 0.1) * (0.4 + 0.6 * strength);
     } else if (kind === DUST) {
       ux = vx * 0.35 + spread(3);
       uz = vz * 0.35 + spread(3);
@@ -327,12 +358,12 @@ export class Particles {
       const kind = this.kind[i];
       const t = age / life;
       const o = i * 3;
-      if (kind === SMOKE || kind === DUST) {
-        // Air drag stops the puff; warm smoke keeps rising, dust settles.
-        const drag = Math.exp(-dt * (kind === SMOKE ? 1.8 : 2.4));
+      if (kind === SMOKE || kind === DUST || kind === SPRAY) {
+        // Air drag stops the puff; warm smoke keeps rising, dust and mist settle.
+        const drag = Math.exp(-dt * (kind === SMOKE ? 1.8 : kind === SPRAY ? 2 : 2.4));
         v[o] *= drag;
         v[o + 2] *= drag;
-        v[o + 1] = v[o + 1] * drag + (kind === SMOKE ? 0.35 : -0.2) * dt;
+        v[o + 1] = v[o + 1] * drag + (kind === SMOKE ? 0.35 : kind === SPRAY ? -0.15 : -0.2) * dt;
       } else {
         v[o + 1] -= 9.81 * dt;
       }
@@ -341,7 +372,7 @@ export class Particles {
       p[o + 2] += v[o + 2] * dt;
       const size = this.size0[i] + this.growth[i] * age;
       // Keep billboards out of the road: a puff's lower edge would otherwise cut a hard line across the asphalt.
-      const floor = this.ground[i] + (kind === SMOKE || kind === DUST ? size * 0.35 : kind === CLUMP ? GROUND_Y + size * 0.5 : 0.02);
+      const floor = this.ground[i] + (kind === SMOKE || kind === DUST || kind === SPRAY ? size * 0.35 : kind === CLUMP ? GROUND_Y + size * 0.5 : 0.02);
       if (p[o + 1] < floor) {
         p[o + 1] = floor;
         if (kind === CLUMP || kind === SPARK) {

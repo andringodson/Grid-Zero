@@ -12,6 +12,7 @@ import { DIFFICULTY_CONSISTENCY, DIFFICULTY_PACE, loadSettings, saveSettings, ty
 import { GhostRecorder, ghostPose, type GhostLap, type GhostPose } from './game/ghost.ts';
 import { loadBestLap, loadGhost, saveBestLap, saveGhost } from './game/storage.ts';
 import { TEAMS, type Team } from './game/teams.ts';
+import { Weather } from './game/weather.ts';
 import { Input } from './input/Input.ts';
 import { COMPOUNDS, type TyreCompound } from './physics/tyre.ts';
 import { QUALITY, type QualityTier } from './render/quality.ts';
@@ -65,6 +66,9 @@ let wingWarned = false;
 const recorder = new GhostRecorder();
 let ghostLap: GhostLap | null = loadGhost(track.id);
 const ghostScratch: GhostPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0 };
+/** This session's weather; the menu backdrop shows how the chosen weather starts. */
+let weather = new Weather(settings.weather);
+let rainAnnounced = false;
 
 const game = new Game({
   container,
@@ -74,6 +78,11 @@ const game = new Game({
   assists: settings.assists,
   input,
   onFrame(g, info) {
+    if (mode === 'driving') updateWeather(info.dt);
+    g.field.wetness = weather.wetness;
+    g.setWeather(weather.cloud, weather.rain, weather.wetness);
+    audio.rain = weather.rain;
+    audio.wetness = weather.wetness;
     if (mode !== 'driving') {
       // Gamepad and keyboard drive the menus: A confirms, Start/Esc backs out.
       if (info.input.pause) {
@@ -131,6 +140,15 @@ const game = new Game({
     haptics.update(g.car, info.kerb, info.impact, info.dt);
   },
 });
+
+/** Weather moves on while the session runs; the first drops of a changing session get a warning. */
+function updateWeather(dt: number): void {
+  weather.update(dt);
+  if (!rainAnnounced && weather.rain > 0.04) {
+    rainAnnounced = true;
+    hud.flash('RAIN IS FALLING - GRIP WILL DROP', 'bad', 3.5);
+  }
+}
 
 function runRace(dt: number): void {
   if (!race) return;
@@ -249,6 +267,7 @@ const menu = new Menu(document.body, settings, track.name, {
     }
     game.car.assists = { ...settings.assists };
     if (changed === 'compound') game.setTeam(liveryFor(teamOf(settings.teamId), 0, COMPOUNDS[settings.compound]));
+    if (changed === 'weather') weather = new Weather(settings.weather);
     touch.showPaddles(!settings.assists.autoGears);
     audio.setVolume(settings.volume);
     return true;
@@ -261,10 +280,22 @@ function liveryFor(team: Team, driver: 0 | 1, compound: TyreCompound): Team {
   return { ...team, livery: { ...team.livery, compound: compound.colour, number: team.numbers[driver] } };
 }
 
-/** Rivals split their tyre choice the way a real grid does: mostly mediums, some softs, a few hards. */
+/**
+ * Rivals split their tyre choice the way a real grid does: in the dry mostly mediums, some softs, a few hards; in
+ * the wet full wets, with a few gambling on inters.
+ */
 function pickCompound(): TyreCompound {
   const r = Math.random();
+  if (weather.wetness > 0.5) return r < 0.8 ? COMPOUNDS.wet : COMPOUNDS.inter;
+  if (weather.wetness > 0.15) return COMPOUNDS.inter;
   return r < 0.3 ? COMPOUNDS.soft : r < 0.8 ? COMPOUNDS.medium : COMPOUNDS.hard;
+}
+
+/** The player's tyres: their choice, except that no team sends a car out on slicks into standing water. */
+function playerCompound(): TyreCompound {
+  const chosen = COMPOUNDS[settings.compound];
+  const slick = chosen.id !== 'inter' && chosen.id !== 'wet';
+  return slick && weather.wetness > 0.5 ? COMPOUNDS.wet : chosen;
 }
 
 const codeOf = (name: string) => name.split(' ').pop()!.slice(0, 3).toUpperCase();
@@ -284,12 +315,17 @@ function startSession(next: SessionMode): void {
 
   recorder.reset();
   game.setGhost(null, game.playerLivery);
+  weather = new Weather(settings.weather);
+  rainAnnounced = weather.rain > 0;
+  const tyres = playerCompound();
+  game.setTeam(liveryFor(teamOf(settings.teamId), 0, tyres));
+  const wetsFitted = tyres !== COMPOUNDS[settings.compound];
   if (next === 'trial') {
     game.toGrid(0);
     prepareCars(TRIAL_FUEL);
     hud.setRaceMode(false, 0, 0);
     setMode('driving');
-    hud.flash('CROSS THE LINE TO START YOUR LAP', 'info', 3);
+    hud.flash(wetsFitted ? 'WET TRACK - FULL WETS FITTED' : 'CROSS THE LINE TO START YOUR LAP', 'info', 3);
     return;
   }
 
@@ -341,12 +377,13 @@ function startSession(next: SessionMode): void {
   game.held = true;
   hud.setRaceMode(true, total, settings.raceLaps);
   setMode('driving');
+  if (wetsFitted) hud.flash('WET TRACK - FULL WETS FITTED', 'info', 3);
 }
 
 /** Fresh tyres off the blankets, a fuel load for the session, and an undamaged car for everyone. */
 function prepareCars(fuel: number, rivalCompound: (id: string) => TyreCompound = () => COMPOUNDS.medium): void {
   for (const fc of game.field.cars) {
-    fc.car.setTyres(BLANKET_TEMP, 0, fc.driver ? rivalCompound(fc.id) : COMPOUNDS[settings.compound]);
+    fc.car.setTyres(BLANKET_TEMP, 0, fc.driver ? rivalCompound(fc.id) : playerCompound());
     fc.car.fuel = fuel;
     fc.car.wingDamage = 0;
     fc.car.drsOpen = false;
@@ -386,4 +423,4 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
 }
 
 // Exposed for debugging in the browser console during development.
-if (import.meta.env.DEV) Object.assign(window, { game, getTimer: () => timer, getRace: () => race, setMode });
+if (import.meta.env.DEV) Object.assign(window, { game, getTimer: () => timer, getRace: () => race, getWeather: () => weather, setMode });
