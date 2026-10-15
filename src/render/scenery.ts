@@ -9,14 +9,13 @@ import { GROUND_Y } from './trackMesh.ts';
 /** Rotation about Y that points an object's local +x along a track heading. */
 const alongTrack = (heading: number) => -heading;
 
-export function buildScenery(track: Track, q: QualitySettings): THREE.Group {
+/** `groundAt` gives the terrain height anywhere, for placing things that stand on the land. */
+export function buildScenery(track: Track, q: QualitySettings, groundAt: (x: number, z: number) => number): THREE.Group {
   const group = new THREE.Group();
   group.name = 'scenery';
   group.add(grandstands(track, q));
-  group.add(pitBuilding(track, q));
   group.add(brakingBoards(track));
-  group.add(trees(track, q));
-  group.add(hills(track));
+  group.add(trees(track, q, groundAt));
   return group;
 }
 
@@ -66,51 +65,11 @@ function grandstands(track: Track, q: QualitySettings): THREE.Group {
       pillar.position.set(px, (height + 4.2) / 2, -depth + 0.5);
       stand.add(pillar);
     }
-    stand.position.set(p.x, GROUND_Y, p.z);
+    stand.position.set(p.x, p.y + GROUND_Y, p.z);
     // Local +z must point at the track (to the right of the stand's +x, which runs with the track).
     stand.rotation.y = alongTrack(p.heading);
     group.add(stand);
   }
-  return group;
-}
-
-/** Pit and paddock building on the inside of the main straight, with a glazed upper floor that reflects the sky. */
-function pitBuilding(track: Track, q: QualitySettings): THREE.Group {
-  const group = new THREE.Group();
-  const s = track.length - 200;
-  const i = Math.floor(s / track.spacing);
-  const p = track.pointAt(s, track.barrierRight[i] + 14);
-  const length = 260;
-
-  const base = new THREE.Mesh(
-    new THREE.BoxGeometry(length, 6, 18),
-    new THREE.MeshStandardMaterial({ color: 0xe4e6e8, roughness: 0.7 }),
-  );
-  base.position.y = 3;
-  const glass = new THREE.Mesh(
-    new THREE.BoxGeometry(length, 5, 16),
-    new THREE.MeshStandardMaterial({ color: 0x1b2633, roughness: 0.08, metalness: 0.9 }),
-  );
-  glass.position.set(0, 8.5, 1);
-  const roof = new THREE.Mesh(
-    new THREE.BoxGeometry(length + 4, 0.6, 22),
-    new THREE.MeshStandardMaterial({ color: 0xf2f4f6, roughness: 0.5 }),
-  );
-  roof.position.y = 11.3;
-  // Dark garage openings facing the track.
-  const doors = new THREE.Mesh(
-    new THREE.BoxGeometry(length - 10, 4.2, 0.2),
-    new THREE.MeshStandardMaterial({ color: 0x15181c, roughness: 0.8 }),
-  );
-  doors.position.set(0, 2.3, -9.05);
-  for (const m of [base, glass, roof, doors]) {
-    m.castShadow = q.shadows;
-    m.receiveShadow = true;
-    group.add(m);
-  }
-  group.position.set(p.x, GROUND_Y, p.z);
-  // Local -z faces the track, which is on the building's left.
-  group.rotation.y = alongTrack(p.heading);
   return group;
 }
 
@@ -146,9 +105,9 @@ function brakingBoards(track: Track): THREE.Group {
       const lateral = outside * (track.halfWidth + track.kerbWidth + 3);
       const p = track.pointAt(s, lateral);
       const post = new THREE.Mesh(postGeo, postMat);
-      post.position.set(p.x, GROUND_Y + 0.8, p.z);
+      post.position.set(p.x, p.y + GROUND_Y + 0.8, p.z);
       const board = new THREE.Mesh(boardGeo, matFor(String(d)));
-      board.position.set(p.x, GROUND_Y + 1.9, p.z);
+      board.position.set(p.x, p.y + GROUND_Y + 1.9, p.z);
       // Face oncoming cars.
       board.rotation.y = Math.atan2(-Math.cos(p.heading), -Math.sin(p.heading));
       board.castShadow = true;
@@ -158,8 +117,32 @@ function brakingBoards(track: Track): THREE.Group {
   return group;
 }
 
+/**
+ * Pushes each vertex in or out along its direction from the trunk axis by a pseudo-random amount keyed on its
+ * position, so coincident vertices on seams move together and the surface never cracks. Breaks up the perfect
+ * outline of a primitive into something leafy.
+ */
+function roughen(geo: THREE.BufferGeometry, amount: number, seed: number): THREE.BufferGeometry {
+  const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+  const v = new THREE.Vector3();
+  for (let k = 0; k < pos.count; k++) {
+    v.fromBufferAttribute(pos, k);
+    const h = Math.sin(v.x * 12.9898 + v.y * 78.233 + v.z * 37.719 + seed) * 43758.5453;
+    const n = (h - Math.floor(h)) * 2 - 1;
+    const radial = Math.hypot(v.x, v.z);
+    if (radial < 1e-4) continue;
+    const scale = 1 + n * amount;
+    pos.setXYZ(k, v.x * scale, v.y + n * amount * 0.6, v.z * scale);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Trees are grouped into tiles this size, so whole tiles can be culled. */
+const TREE_TILE = 400;
+
 /** Instanced conifers and broadleaf trees, kept well clear of the barriers and the paddock. */
-function trees(track: Track, q: QualitySettings): THREE.Group {
+function trees(track: Track, q: QualitySettings, groundAt: (x: number, z: number) => number): THREE.Group {
   const group = new THREE.Group();
   const rand = seededRandom(91);
 
@@ -175,7 +158,7 @@ function trees(track: Track, q: QualitySettings): THREE.Group {
   }
   const margin = 700;
 
-  type Spot = { x: number; z: number; scale: number; kind: number };
+  type Spot = { x: number; y: number; z: number; scale: number; kind: number };
   const spots: Spot[] = [];
   let attempts = 0;
   while (spots.length < q.trees && attempts < q.trees * 6) {
@@ -187,80 +170,82 @@ function trees(track: Track, q: QualitySettings): THREE.Group {
     // Keep the main straight open for the stands and pit building.
     const nearStraight = p.s < 520 || p.s > track.length - 420;
     if (nearStraight && Math.abs(p.lateral) < 110) continue;
-    spots.push({ x, z, scale: 0.7 + rand() * 0.7, kind: rand() < 0.55 ? 0 : 1 });
+    // Sunk a little so trunks never float on a slope.
+    spots.push({ x, y: groundAt(x, z) - 0.3, z, scale: 0.7 + rand() * 0.7, kind: rand() < 0.55 ? 0 : 1 });
   }
 
-  const trunkGeo = new THREE.CylinderGeometry(0.25, 0.4, 4, 6);
+  const trunkGeo = new THREE.CylinderGeometry(0.22, 0.42, 4, 6);
   trunkGeo.translate(0, 2, 0);
-  const pineGeo = mergeGeometries([
-    new THREE.ConeGeometry(3.2, 7, 8).translate(0, 6.5, 0),
-    new THREE.ConeGeometry(2.5, 6, 8).translate(0, 9.5, 0),
-    new THREE.ConeGeometry(1.6, 5, 8).translate(0, 12.5, 0),
-  ])!;
-  const broadGeo = new THREE.IcosahedronGeometry(4.2, 1);
-  broadGeo.scale(1, 0.85, 1);
-  broadGeo.translate(0, 7.5, 0);
+  // Conifer: five drooping tiers, each edge broken up into branch tips.
+  const pineGeo = roughen(
+    mergeGeometries(
+      [
+        [3.4, 4.2, 4.6],
+        [2.9, 4, 6.8],
+        [2.3, 3.6, 8.9],
+        [1.7, 3.2, 10.8],
+        [1.0, 2.8, 12.6],
+      ].map(([r, h, y]) => new THREE.ConeGeometry(r, h, 10, 1).translate(0, y, 0)),
+    )!,
+    0.22,
+    7,
+  );
+  // Broadleaf: a canopy of overlapping lobes rather than one ball.
+  const broadGeo = roughen(
+    mergeGeometries(
+      [
+        [0, 7.6, 0, 3.3],
+        [1.9, 6.6, 0.6, 2.5],
+        [-1.6, 6.9, -0.9, 2.6],
+        [0.3, 6.4, 2.0, 2.3],
+        [-0.4, 9.0, -0.3, 2.4],
+      ].map(([x, y, z, r]) => new THREE.IcosahedronGeometry(r, 1).translate(x, y, z)),
+    )!,
+    0.28,
+    11,
+  );
 
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3626, roughness: 0.95 });
-  const leafMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true });
+  const leafMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 });
 
-  const make = (geo: THREE.BufferGeometry, mat: THREE.Material, list: Spot[]) => {
-    const mesh = new THREE.InstancedMesh(geo, mat, list.length);
-    mesh.castShadow = q.shadows;
-    mesh.receiveShadow = true;
-    return mesh;
-  };
-  const pines = spots.filter((s) => s.kind === 0);
-  const broads = spots.filter((s) => s.kind === 1);
-  const trunks = make(trunkGeo, trunkMat, spots);
-  const pineMesh = make(pineGeo, leafMat, pines);
-  const broadMesh = make(broadGeo, leafMat, broads);
-
+  // The forest is split into tiles, each its own instanced meshes with a bounding sphere, so tiles outside the
+  // view (and outside the small shadow area around the car) are skipped instead of drawing every tree twice.
+  const tiles = new Map<string, Spot[]>();
+  for (const s of spots) {
+    const key = `${Math.floor(s.x / TREE_TILE)},${Math.floor(s.z / TREE_TILE)}`;
+    const tile = tiles.get(key);
+    if (tile) tile.push(s);
+    else tiles.set(key, [s]);
+  }
   const m = new THREE.Matrix4();
   const quat = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
+  const position = new THREE.Vector3();
+  const scale = new THREE.Vector3();
   const colour = new THREE.Color();
-  spots.forEach((s, idx) => {
-    quat.setFromAxisAngle(up, rand() * Math.PI * 2);
-    m.compose(new THREE.Vector3(s.x, GROUND_Y, s.z), quat, new THREE.Vector3(s.scale, s.scale, s.scale));
-    trunks.setMatrixAt(idx, m);
-  });
-  const place = (mesh: THREE.InstancedMesh, list: Spot[], hue: number) => {
+  const instanced = (geo: THREE.BufferGeometry, mat: THREE.Material, list: Spot[], hue: number | null) => {
+    const mesh = new THREE.InstancedMesh(geo, mat, list.length);
     list.forEach((s, idx) => {
       quat.setFromAxisAngle(up, rand() * Math.PI * 2);
-      m.compose(new THREE.Vector3(s.x, GROUND_Y, s.z), quat, new THREE.Vector3(s.scale, s.scale * (0.9 + rand() * 0.3), s.scale));
+      const stretch = hue === null ? 1 : 0.9 + rand() * 0.3;
+      m.compose(position.set(s.x, s.y, s.z), quat, scale.set(s.scale, s.scale * stretch, s.scale));
       mesh.setMatrixAt(idx, m);
-      colour.setHSL(hue + (rand() - 0.5) * 0.05, 0.45 + rand() * 0.15, 0.17 + rand() * 0.08);
-      mesh.setColorAt(idx, colour);
+      if (hue !== null) {
+        colour.setHSL(hue + (rand() - 0.5) * 0.05, 0.45 + rand() * 0.15, 0.17 + rand() * 0.08);
+        mesh.setColorAt(idx, colour);
+      }
     });
+    mesh.computeBoundingSphere();
+    mesh.castShadow = q.shadows;
+    mesh.receiveShadow = true;
+    group.add(mesh);
   };
-  place(pineMesh, pines, 0.33);
-  place(broadMesh, broads, 0.25);
-  group.add(trunks, pineMesh, broadMesh);
-  return group;
-}
-
-/** A ring of distant hills, softened by haze, so the horizon isn't a flat edge. */
-function hills(track: Track): THREE.Group {
-  const group = new THREE.Group();
-  const rand = seededRandom(101);
-  let cx = 0;
-  let cz = 0;
-  for (let i = 0; i < track.count; i++) {
-    cx += track.xs[i];
-    cz += track.zs[i];
-  }
-  cx /= track.count;
-  cz /= track.count;
-  const mat = new THREE.MeshStandardMaterial({ color: 0x4f6046, roughness: 1, flatShading: true });
-  for (let k = 0; k < 36; k++) {
-    const angle = (k / 36) * Math.PI * 2 + rand() * 0.1;
-    const dist = 2600 + rand() * 700;
-    const radius = 350 + rand() * 450;
-    const hill = new THREE.Mesh(new THREE.ConeGeometry(radius, 120 + rand() * 260, 7, 1), mat);
-    hill.position.set(cx + Math.cos(angle) * dist, GROUND_Y, cz + Math.sin(angle) * dist);
-    hill.rotation.y = rand() * Math.PI;
-    group.add(hill);
+  for (const tile of tiles.values()) {
+    instanced(trunkGeo, trunkMat, tile, null);
+    const pines = tile.filter((s) => s.kind === 0);
+    const broads = tile.filter((s) => s.kind === 1);
+    if (pines.length) instanced(pineGeo, leafMat, pines, 0.33);
+    if (broads.length) instanced(broadGeo, leafMat, broads, 0.25);
   }
   return group;
 }

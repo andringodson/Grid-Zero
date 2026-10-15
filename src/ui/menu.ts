@@ -2,8 +2,10 @@ import { formatLapTime } from '../game/LapTimer.ts';
 import type { Standing } from '../game/Race.ts';
 import { RACE_LAPS, type Difficulty, type Settings } from '../game/settings.ts';
 import { TEAMS, type Team } from '../game/teams.ts';
+import type { WeatherMode } from '../game/weather.ts';
 import type { Assists } from '../physics/Car.ts';
 import { COMPOUNDS } from '../physics/tyre.ts';
+import { CIRCUITS } from '../track/circuits.ts';
 import type { QualityTier } from '../render/quality.ts';
 import type { TouchSteering } from './touch.ts';
 
@@ -98,7 +100,8 @@ export class Menu {
     panel.innerHTML = `
       <h1 class="menu-logo"><span>GRID</span> ZERO</h1>
       <p class="menu-sub">${this.trackName}</p>
-      <p class="menu-best">Your best lap <strong>${formatLapTime(this.bestLap)}</strong></p>`;
+      <p class="menu-best">Your best lap <strong>${formatLapTime(this.bestLap)}</strong>
+        <small>${this.bestLap === null ? 'Set one in Time Trial to qualify for races' : 'Your qualifying time: it sets your place on the grid'}</small></p>`;
     this.root.appendChild(panel);
 
     const teams = document.createElement('div');
@@ -183,6 +186,16 @@ export class Menu {
     }
     quality.appendChild(seg);
 
+    // Circuit.
+    const circuitSection = this.section(panel, 'Circuit', 'Changing circuit reloads the game.');
+    const circuits = document.createElement('div');
+    circuits.className = 'menu-seg';
+    for (const c of CIRCUITS) {
+      const b = this.button(circuits, c.name.toUpperCase(), () => void apply({ ...this.settings, trackId: c.id }, 'trackId'), 'menu-seg-btn');
+      b.setAttribute('aria-pressed', String(this.settings.trackId === c.id));
+    }
+    circuitSection.appendChild(circuits);
+
     // Race.
     const race = this.section(panel, 'Quick race', 'Opponent pace, and race length in laps.');
     const diff = document.createElement('div');
@@ -201,8 +214,22 @@ export class Menu {
     }
     race.appendChild(laps);
 
+    // Weather.
+    const weather = this.section(panel, 'Weather', 'Changing starts dry and brings rain part-way through: time to think about tyres.');
+    const sky = document.createElement('div');
+    sky.className = 'menu-seg';
+    for (const [mode, label] of [['dry', 'DRY'], ['wet', 'WET'], ['changing', 'CHANGING']] as [WeatherMode, string][]) {
+      const b = this.button(sky, label, () => void apply({ ...this.settings, weather: mode }, 'weather'), 'menu-seg-btn');
+      b.setAttribute('aria-pressed', String(this.settings.weather === mode));
+    }
+    weather.appendChild(sky);
+
     // Tyres.
-    const tyres = this.section(panel, 'Tyres', 'Soft grips most but wears fastest; hard lasts but needs heat in it.');
+    const tyres = this.section(
+      panel,
+      'Tyres',
+      'Soft grips most but wears fastest; hard lasts but needs heat. Inters for a damp track, full wets for standing water.',
+    );
     const compounds = document.createElement('div');
     compounds.className = 'menu-seg';
     for (const c of Object.values(COMPOUNDS)) {

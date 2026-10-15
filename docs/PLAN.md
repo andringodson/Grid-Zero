@@ -53,7 +53,7 @@ The game is a Progressive Web App (PWA), so once it is installed it works offlin
 
 ### Out of scope for this release
 
-Online multiplayer, career mode, weather, livery editor and app-store builds.
+Online multiplayer, career mode, livery editor and app-store builds. (Weather was out of scope, but went in early: see Progress.)
 
 ## Schedule
 
@@ -66,7 +66,7 @@ Online multiplayer, career mode, weather, livery editor and app-store builds.
 
 ## Progress
 
-Updated 2026-10-11, at the end of day 1.
+Updated 2026-10-16.
 
 | Item | Status |
 |---|---|
@@ -83,9 +83,17 @@ Updated 2026-10-11, at the end of day 1.
 | PWA: manifest, icons, offline service worker | Done; offline mode needs checking on a real device |
 | AI drivers, racing line, racecraft, collisions | Done |
 | Quick Race with start lights, timing tower and results | Done |
-| Ghost car in Time Trial | To do |
-| Performance tuning on real phones | To do |
-| Public deployment | Waiting on a decision: GitHub Pages is free only for public repositories |
+| Ghost car in Time Trial | Done |
+| Elevation, banking, gravel and asphalt run-off, terrain and countryside | Done |
+| Tyre compounds, fuel, hybrid (ERS), DRS, slipstream and dirty air | Done |
+| Weather: dry, wet, changing; rain, spray, wet track, intermediates and full wets | Done |
+| Pit lane, pit stops, team garages; rivals pit for the conditions | Done |
+| Grid set by qualifying pace | Done |
+| Visible wing damage | Done |
+| Phone layout checked in an emulated landscape phone (740x360, touch) | Done |
+| Performance tuning on real phones | To do: needs a real device |
+| Second circuit: Kestrel Valley (3.6 km, 33 m of elevation) | Done |
+| Public deployment | Done: the repository is public, and every push to `main` that passes CI is published to https://andringodson.github.io/Grid-Zero/ |
 
 ## Working rules
 

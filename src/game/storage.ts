@@ -1,3 +1,4 @@
+import { isGhostLap, type GhostLap } from './ghost.ts';
 import type { LapRecord } from './LapTimer.ts';
 
 /**
@@ -23,6 +24,25 @@ export function saveBestLap(trackId: string, record: LapRecord): void {
     localStorage.setItem(key(trackId), JSON.stringify(record));
   } catch {
     // Not saved; the best lap still holds for this session.
+  }
+}
+
+/** The ghost of the personal best, saved beside it. */
+export function loadGhost(trackId: string): GhostLap | null {
+  try {
+    const raw = localStorage.getItem(`grid-zero:ghost:${trackId}`);
+    const lap: unknown = raw ? JSON.parse(raw) : null;
+    return isGhostLap(lap) ? lap : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveGhost(trackId: string, lap: GhostLap): void {
+  try {
+    localStorage.setItem(`grid-zero:ghost:${trackId}`, JSON.stringify(lap));
+  } catch {
+    // Too big or storage blocked: the ghost still runs this session.
   }
 }
 

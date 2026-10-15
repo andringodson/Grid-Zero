@@ -58,9 +58,10 @@ export class TouchControls {
       if (this.mode !== 'drag' || this.steerPointer !== null) return;
       this.steerPointer = e.pointerId;
       this.steerOrigin = e.clientX;
-      this.steerZone.setPointerCapture(e.pointerId);
       this.state.active = true;
       this.setSteer(0);
+      // Capture last: if it fails (the pointer already gone), the input above still counts.
+      this.steerZone.setPointerCapture(e.pointerId);
     });
     this.steerZone.addEventListener('pointermove', (e) => {
       if (e.pointerId === this.steerPointer) this.setSteer((e.clientX - this.steerOrigin) / DRAG_RANGE);
@@ -78,10 +79,10 @@ export class TouchControls {
       [this.brake, 'brake'],
     ] as const) {
       el.addEventListener('pointerdown', (e) => {
-        el.setPointerCapture(e.pointerId);
         this.pedalPointers.set(e.pointerId, pedal);
         this.state.active = true;
         this.syncPedals();
+        el.setPointerCapture(e.pointerId);
       });
       const release = (e: PointerEvent) => {
         this.pedalPointers.delete(e.pointerId);

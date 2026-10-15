@@ -37,6 +37,15 @@ body {
   inset: 0;
 }
 
+/* A soft lens vignette over the 3D view, under the HUD. CSS rather than a shader pass, so it's free on phones. */
+#app::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 55%, transparent 55%, rgba(0, 0, 0, 0.28) 100%);
+}
+
 #app canvas {
   display: block;
   width: 100%;

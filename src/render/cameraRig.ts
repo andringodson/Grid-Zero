@@ -14,6 +14,9 @@ export class CameraRig {
   mode: CameraMode = 'chase';
   private yaw = 0;
   private shake = 0;
+  private groundY = 0;
+  private headLat = 0;
+  private headLong = 0;
   private time = 0;
   private readonly pos = new THREE.Vector3();
   private readonly look = new THREE.Vector3();
@@ -36,14 +39,15 @@ export class CameraRig {
     this.time += dt;
     const angle = this.time * 0.12 + 2.4;
     const cam = this.camera;
-    cam.position.set(car.x + Math.cos(angle) * 7.5, 1.9 + Math.sin(this.time * 0.2) * 0.3, car.z + Math.sin(angle) * 7.5);
-    cam.lookAt(car.x, 0.55, car.z);
+    cam.position.set(car.x + Math.cos(angle) * 7.5, car.y + 1.9 + Math.sin(this.time * 0.2) * 0.3, car.z + Math.sin(angle) * 7.5);
+    cam.lookAt(car.x, car.y + 0.55, car.z);
     cam.fov = 40;
     cam.updateProjectionMatrix();
   }
 
   snap(car: Car): void {
     this.yaw = car.yaw;
+    this.groundY = car.y;
     this.update(car, 1, 0);
   }
 
@@ -60,24 +64,32 @@ export class CameraRig {
     const fwdZ = Math.sin(car.yaw);
     const rightX = -fwdZ;
     const rightZ = fwdX;
+    // A point fixed to the car: forward, up and right of its centre, riding the slope with it.
     const local = (f: number, up: number, r: number, out: THREE.Vector3) =>
-      out.set(car.x + fwdX * f + rightX * r, up, car.z + fwdZ * f + rightZ * r);
+      out.set(car.x + fwdX * f + rightX * r, car.groundY(f, r) + up, car.z + fwdZ * f + rightZ * r);
 
     let fov = 62;
     if (this.mode === 'chase') {
       const cx = Math.cos(this.yaw);
       const cz = Math.sin(this.yaw);
       const dist = 6.4 + speed * 0.012;
-      this.pos.set(car.x - cx * dist, 1.75 + speed * 0.002, car.z - cz * dist);
-      this.look.set(car.x + cx * 3, 0.75, car.z + cz * 3);
+      // Height follows the ground with a little lag, so crests and dips read as the car rising and falling.
+      const ground = damp(this.groundY, car.y, 0.12, dt);
+      this.groundY = ground;
+      this.pos.set(car.x - cx * dist, ground + 1.75 + speed * 0.002 - Math.tan(car.pitch) * dist * 0.6, car.z - cz * dist);
+      this.look.set(car.x + cx * 3, ground + 0.75 + Math.tan(car.pitch) * 3, car.z + cz * 3);
       fov = 60 + Math.min(14, speed * 0.14);
     } else if (this.mode === 'tcam') {
       local(-0.55, 1.22, 0, this.pos);
       local(20, 0.7, 0, this.look);
       fov = 64 + Math.min(10, speed * 0.1);
     } else {
-      local(-0.02, 0.86, 0, this.pos);
-      local(20, 0.55, 0, this.look);
+      // The driver's head: thrown toward the outside of a corner and forward under braking, the gaze tilting a
+      // little into the turn. Smoothed, as a neck would.
+      this.headLat = damp(this.headLat, -car.gLat * 0.012, 0.08, dt);
+      this.headLong = damp(this.headLong, car.gLong * 0.008, 0.08, dt);
+      local(-0.02 + this.headLong, 0.86 - Math.abs(this.headLong) * 0.4, this.headLat, this.pos);
+      local(20, 0.55, car.gLat * 0.35, this.look);
       fov = 72 + Math.min(8, speed * 0.08);
     }
 

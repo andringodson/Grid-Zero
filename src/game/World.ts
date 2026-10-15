@@ -10,6 +10,10 @@ const SURFACES: Record<WheelSurface['kind'], WheelSurface> = {
   track: { kind: 'track', grip: 1, drag: 0 },
   kerb: { kind: 'kerb', grip: 0.92, drag: 0.012 },
   grass: { kind: 'grass', grip: 0.5, drag: 0.3 },
+  // Gravel traps are built to stop cars: wheels dig in and grip is poor.
+  gravel: { kind: 'gravel', grip: 0.45, drag: 1.1 },
+  // Painted asphalt run-off: dusty and unrubbered, but a car can rejoin from it.
+  runoff: { kind: 'runoff', grip: 0.85, drag: 0.02 },
 };
 
 /** Half the car's width, for barrier contact. */
@@ -25,6 +29,7 @@ export interface StepResult {
 /** The racing line is rubbered in and grips a little better; off it, marbles and dust grip a little worse. */
 const LINE_GRIP_BONUS = 0.02;
 const MARBLES_GRIP_LOSS = 0.03;
+const WET_LINE_LOSS = 0.04;
 
 /** Puts a car on a track: surfaces under its wheels, barrier contact, and returning it to the circuit. */
 export class World {
@@ -32,6 +37,9 @@ export class World {
   private wheelHints = [-1, -1, -1, -1];
   private centreHint = -1;
   private line: Float64Array | null = null;
+  /** Water on the track, 0 to 1, set from the weather. */
+  wetness = 0;
+  private readonly wetSurface: WheelSurface[] = [0, 1, 2, 3].map(() => ({ ...SURFACES.grass }));
   private readonly asphalt: WheelSurface[] = [0, 1, 2, 3].map(() => ({ ...SURFACES.track }));
   projection: TrackProjection;
 
@@ -49,26 +57,71 @@ export class World {
     const p = this.track.project(x, z, this.wheelHints[wheel]);
     this.wheelHints[wheel] = p.index;
     const kind = this.track.surfaceAt(p);
-    if (kind !== 'track' || !this.line) return SURFACES[kind];
+    if (kind !== 'track') {
+      if (this.wetness <= 0) return SURFACES[kind];
+      // Wet paint on kerbs and run-off is like ice; wet grass not much better.
+      const base = SURFACES[kind];
+      const surface = this.wetSurface[wheel];
+      surface.kind = base.kind;
+      surface.drag = base.drag;
+      surface.grip = base.grip * (1 - (kind === 'kerb' || kind === 'runoff' ? 0.35 : 0.3) * this.wetness);
+      return surface;
+    }
+    if (!this.line) return SURFACES[kind];
     const off = Math.abs(p.lateral - this.line[p.index]);
     const onLine = 1 - smoothstep(1.5, 4.5, off);
     const marbles = smoothstep(4, 8, off);
     const surface = this.asphalt[wheel];
-    surface.grip = 1 + LINE_GRIP_BONUS * onLine - MARBLES_GRIP_LOSS * marbles;
+    // In the dry the rubbered-in line grips best; in the wet, rubber and water make it the slipperiest strip.
+    const lineEffect = LINE_GRIP_BONUS * (1 - this.wetness) - WET_LINE_LOSS * this.wetness;
+    surface.grip = 1 + lineEffect * onLine - MARBLES_GRIP_LOSS * marbles * (1 - this.wetness);
     return surface;
   };
+
+  /**
+   * Sets the ground under the car from the track: height, slope along and across the car (from the track's
+   * gradient and camber, turned into the car's heading), and the road's vertical curvature.
+   */
+  applyTerrain(car: Car): void {
+    const p = this.projection;
+    const i = p.index;
+    const t = this.track;
+    const rel = car.yaw - p.heading;
+    const c = Math.cos(rel);
+    const s = Math.sin(rel);
+    // Rise per metre along the track and to its right; beyond the kerbs the run-off is level sideways.
+    const along = t.grade[i];
+    const across = Math.abs(p.lateral) <= t.halfWidth + t.kerbWidth ? Math.tan(t.camber[i]) : 0;
+    car.pitch = Math.atan(along * c + across * s);
+    car.roll = Math.atan(-along * s + across * c);
+    car.verticalCurvature = t.verticalCurvature[i] * c * c;
+    car.y = t.heightAt(p);
+  }
 
   /** Runs after each physics step: keeps the car inside the barriers. */
   constrain(car: Car): StepResult {
     const p = this.track.project(car.x, car.z, this.centreHint);
     this.centreHint = p.index;
     this.projection = p;
-    const limit = this.track.barrierAt(p) - CAR_HALF_WIDTH;
-    const excess = Math.abs(p.lateral) - limit;
+    const a = Math.abs(p.lateral);
+    let side = Math.sign(p.lateral);
+    let excess = a - (this.track.barrierAt(p) - CAR_HALF_WIDTH);
+    // The pit wall has a face on each side: push the car out of whichever it is nearer.
+    const pit = this.track.pit;
+    if (excess <= 0 && pit && side === pit.side && this.track.pitWallAt(p.s)) {
+      const inner = pit.wallInner - CAR_HALF_WIDTH;
+      const outer = pit.wallOuter + CAR_HALF_WIDTH;
+      if (a > inner && a < outer) {
+        if (a - inner < outer - a) excess = a - inner;
+        else {
+          excess = outer - a;
+          side = -side;
+        }
+      }
+    }
     if (excess <= 0) return { impact: 0, frontal: 0 };
 
     // Outward normal: toward the barrier the car is touching.
-    const side = Math.sign(p.lateral);
     const nx = -Math.sin(p.heading) * side;
     const nz = Math.cos(p.heading) * side;
     car.x -= nx * excess;
@@ -110,6 +163,6 @@ export class World {
 
   /** True when all four wheels are off the track and kerbs, which breaks track limits. */
   allWheelsOff(car: Car): boolean {
-    return car.wheelSurface.every((k) => k === 'grass');
+    return car.wheelSurface.every((k) => k !== 'track' && k !== 'kerb');
   }
 }

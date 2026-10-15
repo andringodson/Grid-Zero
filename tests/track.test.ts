@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Track } from '../src/track/Track.ts';
+import { RUNOFF_ASPHALT, RUNOFF_GRAVEL, Track } from '../src/track/Track.ts';
 import { HALDEN_RING } from '../src/track/circuits.ts';
 
 const track = new Track(HALDEN_RING);
@@ -71,5 +71,68 @@ test('grid slots sit on the track behind the line', () => {
     const p = track.project(g.x, g.z);
     assert.equal(track.surfaceAt(p), 'track');
     assert.ok(p.s > track.length - 200, `slot ${slot} is at ${p.s.toFixed(0)} m`);
+  }
+});
+
+test('run-off: gravel outside faster corners, asphalt outside the tight ones, none on the straights', () => {
+  let gravel = 0;
+  let asphalt = 0;
+  for (let k = 0; k < track.count; k++) {
+    for (const side of [track.runoffLeft, track.runoffRight]) {
+      if (side[k] === RUNOFF_GRAVEL) gravel++;
+      if (side[k] === RUNOFF_ASPHALT) asphalt++;
+    }
+  }
+  assert.ok(gravel * track.spacing > 200, `${gravel * track.spacing} m of gravel`);
+  assert.ok(asphalt * track.spacing > 200, `${asphalt * track.spacing} m of asphalt run-off`);
+  // The middle of the main straight is grass on both sides.
+  const mid = Math.round(200 / track.spacing);
+  assert.equal(track.runoffLeft[mid] + track.runoffRight[mid], 0);
+  // Run-off is on the outside: at the tightest point of the final hairpin (a right-hander), the left side.
+  let tightest = 0;
+  for (let k = 0; k < track.count; k++) if (Math.abs(track.curvature[k]) > Math.abs(track.curvature[tightest])) tightest = k;
+  const outside = track.curvature[tightest] > 0 ? track.runoffLeft : track.runoffRight;
+  assert.equal(outside[tightest], RUNOFF_ASPHALT);
+});
+
+test('surfaces beyond the kerb follow the run-off, or the pit road', () => {
+  for (let k = 0; k < track.count; k += 7) {
+    for (const [sideSign, side] of [[-1, track.runoffLeft], [1, track.runoffRight]] as const) {
+      const lateral = sideSign * (track.halfWidth + track.kerbWidth + 3);
+      if (lateral * sideSign >= (sideSign > 0 ? track.barrierRight[k] : track.barrierLeft[k])) continue;
+      const p = track.pointAt(k * track.spacing, lateral);
+      const proj = track.project(p.x, p.z, k);
+      const pitRoad = track.pit?.side === sideSign && Math.abs(lateral) <= track.pitOuter(proj.s);
+      const want = pitRoad ? 'track' : side[proj.index] === RUNOFF_GRAVEL ? 'gravel' : side[proj.index] === RUNOFF_ASPHALT ? 'runoff' : 'grass';
+      assert.equal(track.surfaceAt(proj), want);
+    }
+  }
+});
+
+test('elevation: a closed, smooth profile with realistic gradients and crests', () => {
+  let maxGrade = 0;
+  let maxVert = 0;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let k = 0; k < track.count; k++) {
+    maxGrade = Math.max(maxGrade, Math.abs(track.grade[k]));
+    maxVert = Math.max(maxVert, Math.abs(track.verticalCurvature[k]));
+    lo = Math.min(lo, track.ys[k]);
+    hi = Math.max(hi, track.ys[k]);
+  }
+  assert.ok(hi - lo > 10, `only ${(hi - lo).toFixed(1)} m of elevation change`);
+  assert.ok(maxGrade < 0.07, `grade ${(maxGrade * 100).toFixed(1)}%`);
+  // A crest gentler than 1/1500 m keeps the car on the ground at full speed.
+  assert.ok(maxVert < 1 / 1500, `vertical curvature 1/${(1 / maxVert).toFixed(0)} m`);
+  assert.ok(Math.abs(track.ys[0] - track.ys[track.count - 1]) < 0.1, 'the lap must close on itself');
+});
+
+test('pointAt and heightAt agree on the surface height, camber included', () => {
+  for (const s of [100, 1700, 3000]) {
+    for (const lateral of [-6, 0, 6]) {
+      const p = track.pointAt(s, lateral);
+      const h = track.heightAt(track.project(p.x, p.z));
+      assert.ok(Math.abs(p.y - h) < 0.05, `s ${s} lateral ${lateral}: ${p.y.toFixed(3)} vs ${h.toFixed(3)}`);
+    }
   }
 });
