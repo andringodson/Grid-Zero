@@ -319,6 +319,38 @@ export function garageTexture(teams: readonly { name: string; colour: number }[]
   return finish(c, anisotropy);
 }
 
+/**
+ * Foliage for the trees: a tile of overlapping leaves (or, for conifers, needle sprays) in varied light and shade over
+ * the darker depths of the canopy. Greyscale: each tree's own green comes from its instance colour. Leaves near an
+ * edge are drawn again across it, so the tile repeats without seams.
+ */
+export function foliageTexture(needles: boolean): THREE.CanvasTexture {
+  const size = 256;
+  const [c, ctx] = canvas(size);
+  const rand = seededRandom(needles ? 71 : 37);
+  // Shadowed depths of the canopy behind the leaves.
+  ctx.fillStyle = 'rgb(120, 120, 120)';
+  ctx.fillRect(0, 0, size, size);
+  const count = needles ? 1400 : 900;
+  for (let i = 0; i < count; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const shade = Math.round(165 + rand() * 90);
+    const angle = rand() * Math.PI * 2;
+    const rx = needles ? 7 + rand() * 6 : 4 + rand() * 4;
+    const ry = needles ? 1.1 : 2.2 + rand() * 2;
+    ctx.fillStyle = `rgb(${shade}, ${shade}, ${shade})`;
+    for (const ox of [-size, 0, size]) {
+      for (const oy of [-size, 0, size]) {
+        ctx.beginPath();
+        ctx.ellipse(x + ox, y + oy, rx, ry, angle, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+  return finish(c, 4);
+}
+
 /** Gravel trap: pale, uneven stones with darker gaps between them. */
 export function gravelTextures(size: number, anisotropy: number): SurfaceTextures {
   const rand = seededRandom(81);
@@ -432,6 +464,29 @@ export const AD_BRANDS: readonly { name: string; bg: string; fg: string }[] = [
   { name: 'TORRIK TOOLS', bg: '#f47a20', fg: '#111111' },
   { name: 'OKAVI WATCHES', bg: '#1d1d1d', fg: '#c9a54a' },
 ];
+
+const sponsorAtlases = new Map<boolean, THREE.CanvasTexture>();
+
+/**
+ * The sponsors' names as they appear on a car: lettering only, white for dark paint or near-black for light paint,
+ * one brand per row like the board atlas. Shared by every car.
+ */
+export function sponsorAtlas(dark: boolean): THREE.CanvasTexture {
+  const cached = sponsorAtlases.get(dark);
+  if (cached) return cached;
+  const w = 512;
+  const h = 64;
+  const [c, ctx] = canvas(w, h * AD_BRANDS.length);
+  ctx.fillStyle = dark ? '#121417' : '#ffffff';
+  ctx.font = 'italic 900 44px Arial, Helvetica, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  AD_BRANDS.forEach((b, k) => ctx.fillText(b.name, w / 2, k * h + h / 2 + 2, w - 16));
+  const tex = finish(c, 4);
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  sponsorAtlases.set(dark, tex);
+  return tex;
+}
 
 /** All the sponsor boards in one atlas: board k occupies rows k/n..(k+1)/n. */
 export function adAtlasTexture(anisotropy: number): THREE.CanvasTexture {

@@ -1,8 +1,9 @@
 import * as THREE from 'three';
+import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Car } from '../physics/Car.ts';
 import type { Livery } from '../game/teams.ts';
-import { carbonWeaveTexture, raceNumberTexture, sidewallTexture } from './textures.ts';
+import { AD_BRANDS, carbonWeaveTexture, raceNumberTexture, sidewallTexture, sponsorAtlas } from './textures.ts';
 
 /**
  * Procedural open-wheel car. Local axes: +x forward, +y up, +z right; the origin is the centre of gravity on the
@@ -16,23 +17,57 @@ interface Section {
   w: number;
   h: number;
   z?: number;
+  /** Superellipse exponents of the top and bottom halves: higher is boxier. */
+  top?: number;
+  bottom?: number;
 }
 
-/** Superellipse exponent: higher is boxier. 2.6 reads as a modern carbon body. */
+/** Superellipse exponents: a rounded top, as on a modern carbon body, over a flatter underside. */
 const SQUARENESS = 2.6;
-const RING = 24;
+const FLAT_BOTTOM = 3.6;
+const RING = 40;
+/** Interpolated sections between each pair given, along a spline, so the body curves rather than creases. */
+const SUBDIVISIONS = 5;
+
+/** The sections given, with more in between along Catmull-Rom splines through every dimension. */
+function smoothSections(keys: Section[]): Required<Section>[] {
+  const full = keys.map((k) => ({ z: 0, top: SQUARENESS, bottom: FLAT_BOTTOM, ...k }));
+  const out: Required<Section>[] = [];
+  const fields = ['x', 'y', 'w', 'h', 'z', 'top', 'bottom'] as const;
+  for (let i = 0; i < full.length - 1; i++) {
+    const p0 = full[Math.max(0, i - 1)];
+    const p1 = full[i];
+    const p2 = full[i + 1];
+    const p3 = full[Math.min(full.length - 1, i + 2)];
+    for (let s = 0; s < SUBDIVISIONS; s++) {
+      const t = s / SUBDIVISIONS;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      const sec = {} as Required<Section>;
+      for (const f of fields) {
+        sec[f] = 0.5 * (2 * p1[f] + (p2[f] - p0[f]) * t + (2 * p0[f] - 5 * p1[f] + 4 * p2[f] - p3[f]) * t2 + (3 * p1[f] - p0[f] - 3 * p2[f] + p3[f]) * t3);
+      }
+      sec.w = Math.max(0.002, sec.w);
+      sec.h = Math.max(0.002, sec.h);
+      out.push(sec);
+    }
+  }
+  out.push(full[full.length - 1]);
+  return out;
+}
 
 /** Smooth body through a series of rounded-rectangle cross-sections, capped at both ends. */
-function loft(sections: Section[]): THREE.BufferGeometry {
+function loft(keys: Section[]): THREE.BufferGeometry {
+  const sections = smoothSections(keys);
   const positions: number[] = [];
   const indices: number[] = [];
-  const e = 2 / SQUARENESS;
   for (const s of sections) {
     for (let k = 0; k < RING; k++) {
       const t = (k / RING) * Math.PI * 2;
       const c = Math.cos(t);
       const sn = Math.sin(t);
-      positions.push(s.x, s.y + (s.h / 2) * Math.sign(sn) * Math.abs(sn) ** e, (s.z ?? 0) + (s.w / 2) * Math.sign(c) * Math.abs(c) ** e);
+      const e = 2 / (sn >= 0 ? s.top : s.bottom);
+      positions.push(s.x, s.y + (s.h / 2) * Math.sign(sn) * Math.abs(sn) ** e, s.z + (s.w / 2) * Math.sign(c) * Math.abs(c) ** e);
     }
   }
   for (let i = 0; i < sections.length - 1; i++) {
@@ -48,12 +83,12 @@ function loft(sections: Section[]): THREE.BufferGeometry {
   // End caps as fans around a centre vertex, facing forward at the nose and backward at the tail.
   const capStart = positions.length / 3;
   const first = sections[0];
-  positions.push(first.x, first.y, first.z ?? 0);
+  positions.push(first.x, first.y, first.z);
   for (let k = 0; k < RING; k++) indices.push(capStart, (k + 1) % RING, k);
   const capEnd = positions.length / 3;
   const last = sections[sections.length - 1];
   const base = (sections.length - 1) * RING;
-  positions.push(last.x, last.y, last.z ?? 0);
+  positions.push(last.x, last.y, last.z);
   for (let k = 0; k < RING; k++) indices.push(capEnd, base + k, base + ((k + 1) % RING));
 
   const geo = new THREE.BufferGeometry();
@@ -61,6 +96,56 @@ function loft(sections: Section[]): THREE.BufferGeometry {
   geo.setIndex(indices);
   geo.computeVertexNormals();
   return geo;
+}
+
+/**
+ * Two-tone bodywork: the material's colour above height `cut` (in the car's own frame), gloss carbon below, and a
+ * thin pinstripe in `stripe` just above the join, drawn per pixel so the lines stay crisp at any distance.
+ */
+function twoTone(material: THREE.MeshPhysicalMaterial, cut: number, lower: number, stripe: number): void {
+  const uniforms = {
+    cutY: { value: cut },
+    lowerColor: { value: new THREE.Color(lower) },
+    stripeColor: { value: new THREE.Color(stripe) },
+  };
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('void main() {', 'varying float vBodyY;\nvoid main() {')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vBodyY = position.y;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('void main() {', 'uniform float cutY;\nuniform vec3 lowerColor;\nuniform vec3 stripeColor;\nvarying float vBodyY;\nvoid main() {')
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+  float aa = fwidth(vBodyY) * 1.2;
+  diffuseColor.rgb = mix(lowerColor, diffuseColor.rgb, smoothstep(cutY - aa, cutY + aa, vBodyY));
+  float stripe = 1.0 - smoothstep(0.006 - aa, 0.006 + aa, abs(vBodyY - cutY - 0.016));
+  diffuseColor.rgb = mix(diffuseColor.rgb, stripeColor, stripe);`,
+      );
+  };
+  material.customProgramCacheKey = () => 'two-tone';
+}
+
+/**
+ * A tyre turned on a lathe: flat sidewalls from the rim out to rounded shoulders, then the tread. The axle runs
+ * along z.
+ */
+function tyreGeometry(radius: number, width: number): THREE.BufferGeometry {
+  const rim = 0.235;
+  const shoulder = 0.035;
+  const half = width / 2;
+  const pts: THREE.Vector2[] = [new THREE.Vector2(rim, -half)];
+  const arc = (cx: number, cy: number, from: number, to: number) => {
+    for (let i = 0; i <= 6; i++) {
+      const t = from + ((to - from) * i) / 6;
+      pts.push(new THREE.Vector2(cx + shoulder * Math.cos(t), cy + shoulder * Math.sin(t)));
+    }
+  };
+  arc(radius - shoulder, -half + shoulder, -Math.PI / 2, 0);
+  arc(radius - shoulder, half - shoulder, 0, Math.PI / 2);
+  pts.push(new THREE.Vector2(rim, half));
+  return new THREE.LatheGeometry(pts, 56).rotateX(Math.PI / 2);
 }
 
 function box(w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.Material, rx = 0, rz = 0): THREE.Mesh {
@@ -210,39 +295,103 @@ export interface CarVisual {
   update(car: Car, dt?: number): void;
 }
 
+/**
+ * Sponsors on the bodywork, projected onto it so the lettering follows the curves: on the sidepods, the engine cover,
+ * the top of the nose and the rear-wing endplates. Three brands per team, picked from its colours; white lettering on
+ * dark paint, near-black on light. One mesh for all of them.
+ */
+function sponsorDecals(livery: Livery, mono: THREE.Mesh, pods: THREE.Mesh[], plates: THREE.Mesh[], a: number, rwX: number): THREE.Mesh {
+  const r = (livery.primary >> 16) & 255;
+  const g = (livery.primary >> 8) & 255;
+  const b = livery.primary & 255;
+  const light = 0.299 * r + 0.587 * g + 0.114 * b > 150;
+  const rows = AD_BRANDS.length;
+  const brand = (k: number) => ((livery.primary >> 4) + k * 3) % rows;
+  const geos: THREE.BufferGeometry[] = [];
+  const project = (target: THREE.Mesh, at: THREE.Vector3, facing: THREE.Euler, w: number, h: number, depth: number, row: number) => {
+    target.updateMatrixWorld(true);
+    const geo = new DecalGeometry(target, at, facing, new THREE.Vector3(w, h, depth));
+    // The decal's v runs 0..1 over its height: squeeze it into the brand's row of the atlas.
+    const uv = geo.getAttribute('uv') as THREE.BufferAttribute;
+    for (let k = 0; k < uv.count; k++) uv.setY(k, 1 - (row + 1 - uv.getY(k)) / rows);
+    geos.push(geo);
+  };
+  for (const side of [-1, 1]) {
+    // Facing outward from each side, so the lettering reads front to back on both.
+    const out = new THREE.Euler(0, side > 0 ? 0 : Math.PI, 0);
+    project(pods[side > 0 ? 1 : 0], new THREE.Vector3(-0.05, 0.435, side * 0.8), out, 0.8, 0.14, 0.3, brand(0));
+    project(mono, new THREE.Vector3(-1.3, 0.62, side * 0.22), out, 0.42, 0.085, 0.2, brand(1));
+    // The endplate is 2 cm thick: a shallow box takes its outer face only, not the inside.
+    project(plates[side > 0 ? 1 : 0], new THREE.Vector3(rwX, 0.74, side * 0.52), out, 0.5, 0.16, 0.03, brand(2));
+  }
+  project(mono, new THREE.Vector3(a - 0.1, 0.56, 0), new THREE.Euler(-Math.PI / 2, 0, 0), 0.42, 0.09, 0.3, brand(1));
+  const material = new THREE.MeshStandardMaterial({
+    map: sponsorAtlas(light),
+    transparent: true,
+    depthWrite: false,
+    roughness: 0.25,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4,
+  });
+  const mesh = new THREE.Mesh(mergeGeometries(geos)!, material);
+  mesh.name = 'sponsors';
+  return mesh;
+}
+
 /** Front wing damage beyond this shows on the model: the wing bent down on one side, its endplate gone. */
 export const BROKEN_WING = 0.25;
 
-export function buildCarModel(car: Car, livery: Livery, castShadows: boolean, wingBroken = false): CarVisual {
+/**
+ * `reflections`, when given, is what the car's glossy surfaces mirror (a live cube of its surroundings); otherwise they
+ * reflect the scene's sky.
+ */
+export function buildCarModel(
+  car: Car,
+  livery: Livery,
+  castShadows: boolean,
+  wingBroken = false,
+  reflections: THREE.Texture | null = null,
+): CarVisual {
   const root = new THREE.Group();
   root.name = 'car';
   const body = new THREE.Group();
   root.add(body);
 
+  // Metallic paint under a deep, smooth clear coat: the coat mirrors the world and the sun, the metal flake gives the
+  // colour its sheen.
   const paint = new THREE.MeshPhysicalMaterial({
     color: livery.primary,
-    roughness: 0.32,
-    metalness: 0.25,
+    roughness: 0.22,
+    metalness: 0.3,
     clearcoat: 1,
-    clearcoatRoughness: 0.06,
+    clearcoatRoughness: 0.02,
+    // Racing-game paint mirrors more than a real car's does: that's the look.
+    envMapIntensity: 1.35,
   });
   const accent = new THREE.MeshPhysicalMaterial({
     color: livery.accent,
-    roughness: 0.3,
-    metalness: 0.2,
+    roughness: 0.22,
+    metalness: 0.3,
     clearcoat: 1,
-    clearcoatRoughness: 0.08,
+    clearcoatRoughness: 0.03,
+    envMapIntensity: 1.35,
   });
   const carbon = new THREE.MeshPhysicalMaterial({
     color: 0x16181b,
-    roughness: 0.38,
+    roughness: 0.35,
     metalness: 0.3,
-    clearcoat: 0.7,
-    clearcoatRoughness: 0.2,
+    clearcoat: 1,
+    clearcoatRoughness: 0.08,
+    envMapIntensity: 1.4,
   });
   applyCarbonWeave(carbon, carbonWeave());
+  // The chassis and sidepods: team colour over a gloss-carbon lower body, as most real liveries are painted.
+  const bodyPaint = paint.clone();
+  twoTone(bodyPaint, 0.33, 0x101214, livery.accent);
   const black = new THREE.MeshStandardMaterial({ color: 0x050607, roughness: 0.5 });
   const titanium = new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.3, metalness: 1 });
+  const mirrorGlass = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.02, metalness: 1 });
 
   const spec = car.spec;
   const a = spec.cgToFront;
@@ -260,15 +409,17 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean, wi
       { x: a - 0.98, y: 0.47, w: 0.62, h: 0.44 },
       { x: 0.45, y: 0.5, w: 0.74, h: 0.5 },
       { x: -0.1, y: 0.5, w: 0.8, h: 0.5 },
-      { x: -0.55, y: 0.62, w: 0.62, h: 0.74 },
-      { x: -0.9, y: 0.66, w: 0.42, h: 0.8 },
+      { x: -0.55, y: 0.6, w: 0.62, h: 0.66 },
+      { x: -0.9, y: 0.62, w: 0.42, h: 0.7 },
       { x: -1.4, y: 0.54, w: 0.42, h: 0.6 },
       { x: -2.0, y: 0.42, w: 0.3, h: 0.36 },
       { x: -b - 0.83, y: 0.36, w: 0.18, h: 0.2 },
     ]),
-    paint,
+    bodyPaint,
   );
   body.add(mono);
+  const pods: THREE.Mesh[] = [];
+  const plates: THREE.Mesh[] = [];
 
   // Accent stripe along the nose.
   const noseTip = new THREE.Mesh(
@@ -291,15 +442,20 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean, wi
         { x: -1.3, y: 0.28, w: 0.3, h: 0.26, z: side * 0.45 },
         { x: -1.85, y: 0.24, w: 0.14, h: 0.14, z: side * 0.32 },
       ]),
-      paint,
+      bodyPaint,
     );
     body.add(pod);
+    pods.push(pod);
     // Dark cooling inlet.
     const inlet = box(0.04, 0.3, 0.36, 0.56, 0.35, side * 0.56, black);
     body.add(inlet);
     // Mirror on a stalk.
     body.add(rod(new THREE.Vector3(0.55, 0.6, side * 0.38), new THREE.Vector3(0.5, 0.7, side * 0.5), 0.012, carbon));
     body.add(box(0.06, 0.06, 0.14, 0.5, 0.72, side * 0.52, carbon));
+    const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.125, 0.048), mirrorGlass);
+    glass.rotation.y = -Math.PI / 2;
+    glass.position.set(0.469, 0.72, side * 0.52);
+    body.add(glass);
   }
 
   // Floor: wide in the middle, tapering toward the nose.
@@ -318,6 +474,28 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean, wi
   floorGeo.translate(0, 0.075, 0);
   // The floor is raw, matte carbon; a clear coat here catches the sky at grazing angles and reads as grey.
   body.add(new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ color: 0x101113, roughness: 0.7, metalness: 0.2 })));
+
+  // Airbox: the intake over the driver's head, rising steeply behind the helmet, with a T-cam on top (black on even
+  // numbers, yellow on odd, as on the real grid).
+  body.add(
+    new THREE.Mesh(
+      loft([
+        { x: -0.2, y: 0.88, w: 0.17, h: 0.13, top: 2.2 },
+        { x: -0.3, y: 0.9, w: 0.28, h: 0.24, top: 2.2 },
+        { x: -0.6, y: 0.86, w: 0.32, h: 0.38, top: 2.2 },
+        { x: -1.0, y: 0.78, w: 0.28, h: 0.38 },
+        { x: -1.45, y: 0.64, w: 0.18, h: 0.2 },
+      ]),
+      bodyPaint,
+    ),
+  );
+  const intake = new THREE.Mesh(new THREE.CircleGeometry(1, 24), black);
+  intake.scale.set(0.068, 0.052, 1);
+  intake.rotation.y = Math.PI / 2;
+  intake.position.set(-0.197, 0.885, 0);
+  body.add(intake);
+  const tcam = (livery.number ?? 0) % 2 === 0 ? black : new THREE.MeshStandardMaterial({ color: 0xf2e10a, roughness: 0.35 });
+  body.add(box(0.12, 0.035, 0.05, -0.42, 1.04, 0, tcam));
 
   // Cockpit opening, driver's helmet and the halo.
   const cockpit = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 10), black);
@@ -386,6 +564,7 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean, wi
         paint,
       ),
     );
+    plates.push(body.children[body.children.length - 1] as THREE.Mesh);
   }
   body.add(rod(new THREE.Vector3(-2.2, 0.4, 0), new THREE.Vector3(rwX + 0.05, 0.86, 0), 0.025, carbon));
 
@@ -408,6 +587,16 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean, wi
     ),
   );
 
+  // Exhaust: one titanium tailpipe above the rain light, dark inside.
+  const pipe = new THREE.CylinderGeometry(0.048, 0.044, 0.22, 20, 1, true).rotateZ(Math.PI / 2);
+  const tailpipe = new THREE.Mesh(pipe, titanium);
+  tailpipe.position.set(-b - 0.86, 0.5, 0);
+  body.add(tailpipe);
+  const bore = new THREE.Mesh(new THREE.CircleGeometry(0.044, 20), black);
+  bore.rotation.y = -Math.PI / 2;
+  bore.position.set(-b - 0.9, 0.5, 0);
+  body.add(bore);
+
   // Rain light.
   body.add(
     box(0.02, 0.06, 0.1, rwX - 0.15, 0.4, 0, new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1010, emissiveIntensity: 0.6 })),
@@ -416,6 +605,8 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean, wi
   // Wheels: a steering pivot (front only) holding a spinning wheel.
   const tyreMat = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.82 });
   const compoundMat = new THREE.MeshStandardMaterial({ color: livery.compound ?? 0xd92020, roughness: 0.6 });
+  const rimLip = new THREE.MeshStandardMaterial({ color: 0xc9ccd1, roughness: 0.18, metalness: 1 });
+  const wheelNut = new THREE.MeshStandardMaterial({ color: 0xd81e1e, roughness: 0.3, metalness: 0.5 });
   const pivots: THREE.Group[] = [];
   const spinners: THREE.Group[] = [];
   const positions: [number, number][] = [
@@ -431,9 +622,7 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean, wi
     const spinner = new THREE.Group();
     pivot.add(spinner);
 
-    const tyreGeo = new THREE.CylinderGeometry(R, R, width, 40, 1);
-    tyreGeo.rotateX(Math.PI / 2);
-    const tyre = new THREE.Mesh(tyreGeo, tyreMat);
+    const tyre = new THREE.Mesh(tyreGeometry(R, width), tyreMat);
     spinner.add(tyre);
 
     const rimGeo = new THREE.CylinderGeometry(0.23, 0.23, width + 0.01, 24);
@@ -442,7 +631,7 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean, wi
 
     // Coloured compound band and a few markings on the outer sidewall so rotation reads at speed.
     const outer = Math.sign(wz);
-    const band = new THREE.Mesh(new THREE.RingGeometry(0.27, 0.3, 40), compoundMat);
+    const band = new THREE.Mesh(new THREE.RingGeometry(0.255, 0.285, 40), compoundMat);
     band.position.z = outer * (width / 2 + 0.006);
     band.rotation.y = outer > 0 ? 0 : Math.PI;
     spinner.add(band);
@@ -450,6 +639,13 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean, wi
     cover.position.z = outer * (width / 2 + 0.008);
     cover.rotation.y = outer > 0 ? 0 : Math.PI;
     spinner.add(cover);
+    const lip = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.236, 40), rimLip);
+    lip.position.z = outer * (width / 2 + 0.01);
+    lip.rotation.y = outer > 0 ? 0 : Math.PI;
+    spinner.add(lip);
+    const nut = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.045, 0.04, 6).rotateX(Math.PI / 2), wheelNut);
+    nut.position.z = outer * (width / 2 + 0.02);
+    spinner.add(nut);
 
     root.add(pivot);
     pivots.push(pivot);
@@ -478,8 +674,11 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean, wi
   shadow.renderOrder = 1;
   root.add(shadow);
 
+  // Projected before merging, while the body's parts are separate; added after, since merging drops texture coordinates.
+  const sponsors = sponsorDecals(livery, mono, pods, plates, a, rwX);
   mergeByMaterial(body);
   for (const spinner of spinners) mergeByMaterial(spinner);
+  body.add(sponsors);
 
   // Parts added after merging keep their texture coordinates or move on their own.
   const decal = (map: THREE.Texture) =>
@@ -513,13 +712,13 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean, wi
   // Brakes: a glowing ring between the wheel cover and the rim edge, front and rear heated separately.
   const glowFront = new THREE.MeshStandardMaterial({ color: 0x1a1210, emissive: 0xff3a08, emissiveIntensity: 0, roughness: 0.4, metalness: 0.6 });
   const glowRear = glowFront.clone();
-  const lettering = decal(sidewallTexture(0.355, 0.33));
+  const lettering = decal(sidewallTexture(0.33, 0.31));
   spinners.forEach((spinner, w) => {
     const [, wz] = positions[w];
     const outer = Math.sign(wz);
     const width = w < 2 ? 0.305 : 0.405;
     const face = outer * (width / 2 + 0.009);
-    const letters = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.355, 48), lettering);
+    const letters = new THREE.Mesh(new THREE.RingGeometry(0.29, 0.33, 48), lettering);
     letters.position.z = face;
     letters.rotation.y = outer > 0 ? 0 : Math.PI;
     spinner.add(letters);
@@ -535,6 +734,7 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean, wi
     if (o instanceof THREE.Mesh && o !== shadow) {
       o.castShadow = castShadows;
       o.receiveShadow = true;
+      if (reflections && o.material instanceof THREE.MeshStandardMaterial) o.material.envMap = reflections;
     }
   });
 

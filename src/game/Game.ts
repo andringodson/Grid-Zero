@@ -13,6 +13,8 @@ import { BROKEN_WING, buildCarModel, type CarVisual } from '../render/carModel.t
 import { Particles } from '../render/effects/particles.ts';
 import { Rain } from '../render/effects/rain.ts';
 import { SkidMarks } from '../render/effects/skidMarks.ts';
+import { createGradePass } from '../render/grade.ts';
+import { ReflectionProbe } from '../render/reflections.ts';
 import { createSpeedBlurPass } from '../render/speedBlur.ts';
 import { buildTrackside, type Trackside } from '../render/trackside.ts';
 import { GhostCar } from '../render/ghostCar.ts';
@@ -77,6 +79,10 @@ export class Game {
   private readonly castShadows: boolean;
   private readonly composer: EffectComposer | null;
   private speedBlur: ReturnType<typeof createSpeedBlurPass> | null = null;
+  private grade: ReturnType<typeof createGradePass> | null = null;
+  /** Live reflections of the player's surroundings, for every car's paint (high and ultra). */
+  private readonly probe: ReflectionProbe | null;
+  private readonly probePosition = new THREE.Vector3();
   private readonly skids: SkidMarks;
   private readonly trackside: Trackside;
   readonly terrain: Terrain;
@@ -132,7 +138,8 @@ export class Game {
     this.scene.add(this.terrain.mesh);
     this.scene.add(this.terrain.buildFarPlane());
     this.scene.add(this.terrain.buildRidge());
-    this.scene.add(buildScenery(o.track, q, (x, z) => this.terrain.heightAt(x, z)));
+    const scenery = buildScenery(o.track, q, (x, z) => this.terrain.heightAt(x, z));
+    this.scene.add(scenery);
     this.trackside = buildTrackside(o.track, q);
     this.scene.add(this.trackside.group);
     this.skids = new SkidMarks(q);
@@ -146,10 +153,14 @@ export class Game {
     this.player.box = this.boxOf(o.team);
     this.castShadows = q.shadows;
     this.livery = o.team.livery;
-    this.visual = buildCarModel(this.car, o.team.livery, q.shadows);
+    this.probe = q.reflectionSize > 0 ? new ReflectionProbe(q.reflectionSize) : null;
+    this.visual = this.carModel(this.car, o.team.livery);
     this.scene.add(this.visual.root);
     this.visual.update(this.car);
     this.rig.snap(this.car);
+    // The probe sits inside the player's car: hide it, and the smoke and rain that don't belong in a reflection.
+    this.probe?.hidden.push(this.particles.mesh, this.rain.mesh);
+    if (!q.reflectScenery) this.probe?.hidden.push(scenery);
 
     if (q.bloom) {
       // A multisampled target keeps anti-aliasing on the post-processing path; HDR so bloom sees real highlights.
@@ -161,10 +172,13 @@ export class Game {
       this.composer = new EffectComposer(this.renderer, target);
       this.composer.addPass(new RenderPass(this.scene, this.rig.camera));
       const size = new THREE.Vector2(o.container.clientWidth, o.container.clientHeight);
-      this.composer.addPass(new UnrealBloomPass(size, 0.18, 0.4, 0.92));
+      // Only real highlights bloom (sun glints on paint, glass and chrome), not the sky or sunlit concrete.
+      this.composer.addPass(new UnrealBloomPass(size, 0.38, 0.45, 1.25));
       this.speedBlur = createSpeedBlurPass();
       this.composer.addPass(this.speedBlur);
       this.composer.addPass(new OutputPass());
+      this.grade = createGradePass();
+      this.composer.addPass(this.grade);
       // Size the chain in CSS pixels times the pixel ratio, so later resizes and resolution changes keep it sharp.
       this.composer.setPixelRatio(pr);
       this.composer.setSize(o.container.clientWidth, o.container.clientHeight);
@@ -273,7 +287,7 @@ export class Game {
     this.livery = team.livery;
     this.player.box = this.boxOf(team);
     this.disposeVisual(this.visual);
-    this.visual = buildCarModel(this.car, team.livery, this.castShadows);
+    this.visual = this.carModel(this.car, team.livery);
     this.scene.add(this.visual.root);
     this.visual.update(this.car);
   }
@@ -284,7 +298,7 @@ export class Game {
     for (const o of opponents) {
       const fc = this.field.addAI(o.id, GZ26, o.skill, o.slot);
       fc.box = this.boxOf(o.team);
-      const visual = buildCarModel(fc.car, o.team.livery, this.castShadows);
+      const visual = this.carModel(fc.car, o.team.livery);
       this.scene.add(visual.root);
       visual.update(fc.car);
       this.opponentVisuals.set(o.id, visual);
@@ -308,17 +322,21 @@ export class Game {
   private showWingDamage(): void {
     if ((this.car.wingDamage > BROKEN_WING) !== !!this.visual.wingBroken) {
       this.disposeVisual(this.visual);
-      this.visual = buildCarModel(this.car, this.livery, this.castShadows, !this.visual.wingBroken);
+      this.visual = this.carModel(this.car, this.livery, !this.visual.wingBroken);
       this.scene.add(this.visual.root);
     }
     for (const fc of this.field.cars) {
       const v = this.opponentVisuals.get(fc.id);
       if (!v || (fc.car.wingDamage > BROKEN_WING) === !!v.wingBroken) continue;
       this.disposeVisual(v);
-      const fresh = buildCarModel(fc.car, this.opponentLiveries.get(fc.id)!, this.castShadows, !v.wingBroken);
+      const fresh = this.carModel(fc.car, this.opponentLiveries.get(fc.id)!, !v.wingBroken);
       this.scene.add(fresh.root);
       this.opponentVisuals.set(fc.id, fresh);
     }
+  }
+
+  private carModel(car: Car, livery: Livery, wingBroken = false): CarVisual {
+    return buildCarModel(car, livery, this.castShadows, wingBroken, this.probe?.texture ?? null);
   }
 
   /** Distance along the lap for any car in the field. */
@@ -432,6 +450,12 @@ export class Game {
     // Speed blur from about 150 km/h, never in the menus or the cockpit-free showcase.
     const speedBlur = this.showcase || this.paused ? 0 : THREE.MathUtils.clamp((Math.abs(this.car.u) - 42) / 50, 0, 1) * 0.035;
     this.speedBlur?.setStrength(speedBlur);
+    if (this.probe) {
+      this.probe.hidden.push(this.visual.root);
+      this.probe.update(this.renderer, this.scene, this.probePosition.set(this.car.x, this.car.y + 0.7, this.car.z));
+      this.probe.hidden.pop();
+    }
+    this.grade?.update(this.rig.camera, this.env.sunDirection);
     if (this.composer) this.composer.render();
     else this.renderer.render(this.scene, this.rig.camera);
   }

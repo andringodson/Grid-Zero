@@ -11,6 +11,10 @@ export interface QualitySettings {
   trees: number;
   bloom: boolean;
   drawDistance: number;
+  /** Size of each face of the cars' live reflection cube; 0 for none (they reflect the sky alone). */
+  reflectionSize: number;
+  /** Trees and stands in the reflections too: the probe's biggest cost, and the least noticed. */
+  reflectScenery: boolean;
 }
 
 export const QUALITY: Record<QualityTier, QualitySettings> = {
@@ -25,6 +29,8 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     trees: 300,
     bloom: false,
     drawDistance: 1600,
+    reflectionSize: 0,
+    reflectScenery: false,
   },
   medium: {
     tier: 'medium',
@@ -35,8 +41,10 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     textureSize: 512,
     anisotropy: 4,
     trees: 900,
-    bloom: false,
+    bloom: true,
     drawDistance: 2400,
+    reflectionSize: 64,
+    reflectScenery: false,
   },
   high: {
     tier: 'high',
@@ -49,6 +57,8 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     trees: 1800,
     bloom: true,
     drawDistance: 3200,
+    reflectionSize: 128,
+    reflectScenery: true,
   },
   ultra: {
     tier: 'ultra',
@@ -61,6 +71,8 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     trees: 3000,
     bloom: true,
     drawDistance: 4000,
+    reflectionSize: 256,
+    reflectScenery: true,
   },
 };
 

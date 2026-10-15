@@ -188,7 +188,8 @@ export function buildTrackMeshes(track: Track, q: QualitySettings, line?: Racing
     roughnessMap: asphalt.roughnessMap,
     normalMap: asphalt.normalMap,
     normalScale: new THREE.Vector2(0.6, 0.6),
-    roughness: 1,
+    // Polished by tyres: a sheen toward the sun, not a matte grey.
+    roughness: 0.82,
     metalness: 0,
   });
   // The texture spans the full width once and repeats every 14 m along the track.
@@ -209,7 +210,7 @@ export function buildTrackMeshes(track: Track, q: QualitySettings, line?: Racing
   // White edge lines.
   const lineMat = new THREE.MeshStandardMaterial({
     color: 0xf2f2ee,
-    roughness: 0.6,
+    roughness: 0.42,
     polygonOffset: true,
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
@@ -229,7 +230,7 @@ export function buildTrackMeshes(track: Track, q: QualitySettings, line?: Racing
 
   // Kerbs: raised and sloped from the white line outward.
   const kerbTex = kerbTexture(q.anisotropy);
-  const kerbMat = new THREE.MeshStandardMaterial({ map: kerbTex, roughness: 0.55 });
+  const kerbMat = new THREE.MeshStandardMaterial({ map: kerbTex, roughness: 0.38 });
   for (const side of [-1, 1]) {
     const flags = side > 0 ? track.kerbRight : track.kerbLeft;
     const kerb = new THREE.Mesh(
@@ -248,7 +249,7 @@ export function buildTrackMeshes(track: Track, q: QualitySettings, line?: Racing
   }
 
   // Barriers: 1.1 m concrete walls with a top cap, facing the track.
-  const wallMat = new THREE.MeshStandardMaterial({ map: barrierTexture(q.anisotropy), roughness: 0.85, side: THREE.DoubleSide });
+  const wallMat = new THREE.MeshStandardMaterial({ map: barrierTexture(q.anisotropy), roughness: 0.6, side: THREE.DoubleSide });
   markWettable(1, asphaltMat, lineMat, kerbMat);
   markWettable(0.4, wallMat);
   const capMat = new THREE.MeshStandardMaterial({ color: 0x8c8e90, roughness: 0.9 });
