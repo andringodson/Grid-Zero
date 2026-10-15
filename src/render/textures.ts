@@ -264,6 +264,61 @@ export function boardTexture(text: string): THREE.CanvasTexture {
   return finish(c, 4);
 }
 
+/**
+ * Garage fronts for the pit building: one 16 m bay per team, in box order, each an open garage under a fascia in the
+ * team's colour with its name. With no teams, one bay of closed grey shutters. The bottom metre is below ground.
+ */
+export function garageTexture(teams: readonly { name: string; colour: number }[] | null, anisotropy: number): THREE.CanvasTexture {
+  const bays = teams?.length ?? 1;
+  const bw = 400;
+  const h = 160;
+  const m = h / 6.2;
+  const ground = h - m;
+  const [c, ctx] = canvas(bw * bays, h);
+  const css = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
+  for (let k = 0; k < bays; k++) {
+    const x0 = k * bw;
+    const team = teams?.[k];
+    ctx.fillStyle = '#d6d9dc';
+    ctx.fillRect(x0, 0, bw, h);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+    for (let x = x0; x < x0 + bw; x += m * 2) ctx.fillRect(x, 0, 2, h);
+    ctx.fillStyle = '#5b5f63';
+    ctx.fillRect(x0, ground, bw, h - ground);
+    // Fascia over the door: the top metre.
+    ctx.fillStyle = team ? css(team.colour) : '#8d9399';
+    ctx.fillRect(x0, 0, bw, m);
+    const doorL = x0 + bw / 2 - 5 * m;
+    const doorTop = ground - 4.2 * m;
+    if (team) {
+      const inside = ctx.createLinearGradient(0, doorTop, 0, ground);
+      inside.addColorStop(0, '#2a2e34');
+      inside.addColorStop(1, '#101215');
+      ctx.fillStyle = inside;
+      ctx.fillRect(doorL, doorTop, 10 * m, ground - doorTop);
+      // Team-coloured panels lining the back of the garage.
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = css(team.colour);
+      for (let x = doorL + m; x < doorL + 9 * m; x += 2 * m) ctx.fillRect(x, doorTop + m * 0.6, m * 1.6, m * 2.2);
+      ctx.globalAlpha = 1;
+      const r = (team.colour >> 16) & 255;
+      const g = (team.colour >> 8) & 255;
+      const b = team.colour & 255;
+      ctx.fillStyle = 0.299 * r + 0.587 * g + 0.114 * b > 150 ? '#111' : '#fff';
+      ctx.font = `bold ${Math.round(m * 0.62)}px Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(team.name.toUpperCase(), x0 + bw / 2, m * 0.52);
+    } else {
+      ctx.fillStyle = '#9aa0a6';
+      ctx.fillRect(doorL, doorTop, 10 * m, ground - doorTop);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+      for (let y = doorTop; y < ground; y += 6) ctx.fillRect(doorL, y, 10 * m, 1.5);
+    }
+  }
+  return finish(c, anisotropy);
+}
+
 /** Gravel trap: pale, uneven stones with darker gaps between them. */
 export function gravelTextures(size: number, anisotropy: number): SurfaceTextures {
   const rand = seededRandom(81);

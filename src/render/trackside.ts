@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { RUNOFF_ASPHALT, RUNOFF_GRAVEL, type Track } from '../track/Track.ts';
+import { TEAMS } from '../game/teams.ts';
+import { BOX_SPACING, RUNOFF_ASPHALT, RUNOFF_GRAVEL, type Track } from '../track/Track.ts';
 import type { QualitySettings } from './quality.ts';
 import {
   AD_BRANDS,
   adAtlasTexture,
   beltTexture,
+  garageTexture,
   gravelTextures,
   runoffTexture,
   tyreStackTexture,
@@ -41,10 +43,14 @@ export function buildTrackside(track: Track, q: QualitySettings): Trackside {
   if (q.tier !== 'low') group.add(fencing(track, q));
   group.add(adBoards(track, q));
   group.add(marshalPosts(track, q));
+  if (track.pit) group.add(garages(track, q));
   const gantry = startGantry(track, q);
   group.add(gantry.group);
   return { group, setStartLights: gantry.setLit };
 }
+
+/** True where the garages stand in for the barrier on this side: no wall, fence or boards there. */
+const garageFront = (track: Track, side: number, i: number) => side === track.pit?.side && track.pitWallAt(i * track.spacing);
 
 const sideOf = (track: Track, side: number) => ({
   runoff: side > 0 ? track.runoffRight : track.runoffLeft,
@@ -225,10 +231,12 @@ function fencing(track: Track, q: QualitySettings): THREE.Group {
   const postSpots: THREE.Vector3[] = [];
   for (const side of [-1, 1]) {
     const s = sideOf(track, side);
-    group.add(new THREE.Mesh(strip(track, (i) => side * (s.barrier[i] + 0.05), BARRIER_HEIGHT, BARRIER_HEIGHT + FENCE_HEIGHT, 0.25), mesh));
+    const fenced = (i: number) => !garageFront(track, side, i);
+    group.add(new THREE.Mesh(strip(track, (i) => side * (s.barrier[i] + 0.05), BARRIER_HEIGHT, BARRIER_HEIGHT + FENCE_HEIGHT, 0.25, fenced), mesh));
     if (q.tier === 'medium') continue;
     for (let d = 0; d < track.length; d += 4) {
       const i = Math.floor(d / track.spacing) % track.count;
+      if (!fenced(i)) continue;
       const p = track.pointAt(d, side * (s.barrier[i] + 0.12));
       postSpots.push(new THREE.Vector3(p.x, p.y, p.z));
     }
@@ -259,7 +267,7 @@ function adBoards(track: Track, q: QualitySettings): THREE.Mesh {
       let straight = true;
       for (let e = -16; e <= 16 && straight; e += track.spacing) {
         const i = Math.floor(track.wrapS(d + e) / track.spacing) % track.count;
-        if (Math.abs(track.curvature[i]) > 1 / 700 || s.runoff[i] !== 0) straight = false;
+        if (Math.abs(track.curvature[i]) > 1 / 700 || s.runoff[i] !== 0 || garageFront(track, side, i)) straight = false;
       }
       if (!straight) continue;
       const i = Math.floor(d / track.spacing) % track.count;
@@ -318,6 +326,63 @@ function marshalPosts(track: Track, q: QualitySettings): THREE.Group {
   add(huts, new THREE.MeshStandardMaterial({ color: 0xeceef0, roughness: 0.8 }));
   add(roofs, new THREE.MeshStandardMaterial({ color: 0xf47a20, roughness: 0.6 }));
   add(people, new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.75 }));
+  return group;
+}
+
+/**
+ * The pit building: garages opening onto the pit lane, with each team's garage behind its box, a glazed upper floor
+ * overhanging the lane, a roof, and closed ends. It runs the length of the pit wall.
+ */
+function garages(track: Track, q: QualitySettings): THREE.Group {
+  const pit = track.pit!;
+  const at = (lateral: number) => () => pit.side * lateral;
+  const inPit = (i: number) => track.pitWallAt(i * track.spacing);
+  const depth = 18;
+  const front = pit.garage + 0.05;
+  const group = new THREE.Group();
+  group.name = 'garages';
+  const add = (geo: THREE.BufferGeometry, mat: THREE.Material) => {
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = q.shadows;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  };
+  const concrete = new THREE.MeshStandardMaterial({ color: 0xe4e6e8, roughness: 0.7, side: THREE.DoubleSide });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x1b2633, roughness: 0.08, metalness: 0.9, side: THREE.DoubleSide });
+
+  // Closed shutters all along, with the teams' open garages laid just in front over the ten boxes.
+  const plain = garageTexture(null, q.anisotropy);
+  add(strip(track, at(front), -1, 5.2, BOX_SPACING, inPit), new THREE.MeshStandardMaterial({ map: plain, roughness: 0.75, side: THREE.DoubleSide }));
+  const teams = TEAMS.slice(0, pit.boxes.length).map((t) => ({ name: t.name, colour: t.livery.primary }));
+  const span = teams.length * BOX_SPACING;
+  const from = pit.firstBox - BOX_SPACING / 2;
+  // The strip's u is distance along the lap over `span`, shifted so the first bay is centred on the first box. Seen
+  // from the track, distance along the lap runs right to left across garages on the right: there, mirror u and draw
+  // the bays in reverse so names read the right way round and each team stays behind its own box.
+  const mirror = pit.side > 0;
+  const tex = garageTexture(mirror ? [...teams].reverse() : teams, q.anisotropy);
+  tex.repeat.x = mirror ? -1 : 1;
+  tex.offset.x = mirror ? (1 + from / span) % 1 : -((from / span) % 1);
+  const inBays = (i: number) => {
+    const u = track.pitDistance(i * track.spacing) - track.pitDistance(from);
+    return u >= 0 && u <= span;
+  };
+  add(strip(track, at(front - 0.02), -1, 5.2, span, inBays), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.75, side: THREE.DoubleSide }));
+
+  // Upper floor overhanging the lane, then the roof, back wall and ends.
+  add(strip(track, at(pit.garage - 0.6), 5.2, 9.6, 4, inPit), glass);
+  add(ribbon(track, { from: at(pit.garage - 0.6), to: at(front), yFrom: () => 5.2, yTo: () => 5.2, repeatLength: 4, include: inPit }), concrete);
+  add(ribbon(track, { from: at(pit.garage - 0.9), to: at(pit.garage + depth), yFrom: () => 9.9, yTo: () => 9.9, repeatLength: 4, include: inPit }), concrete);
+  add(strip(track, at(pit.garage - 0.9), 9.6, 10.2, 4, inPit), concrete);
+  add(strip(track, at(pit.garage + depth), -1, 9.9, 4, inPit), concrete);
+  for (const s of [pit.wallStart, pit.wallEnd]) {
+    const p = track.pointAt(s, pit.side * (pit.garage + depth / 2 - 0.3));
+    const end = new THREE.Mesh(new THREE.BoxGeometry(0.3, 11, depth + 0.9), concrete);
+    end.position.set(p.x, p.y + 4.5, p.z);
+    end.rotation.y = -p.heading;
+    end.castShadow = q.shadows;
+    group.add(end);
+  }
   return group;
 }
 

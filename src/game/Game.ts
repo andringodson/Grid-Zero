@@ -126,20 +126,10 @@ export class Game {
     this.field = new Field(o.track, computeRacingLine(o.track, GZ26));
     // The racing line tells the track where to lay rubber down.
     this.scene.add(buildTrackMeshes(o.track, q, this.field.line));
-    // The land: the heightfield mesh, and a plane beyond it to the horizon.
+    // The land: the heightfield mesh, and level land beyond it to the horizon.
     this.terrain = new Terrain(o.track, q);
     this.scene.add(this.terrain.mesh);
-    const farGeo = new THREE.PlaneGeometry(12000, 12000);
-    // Same 40 m grass repeat as the terrain.
-    const uv = farGeo.getAttribute('uv') as THREE.BufferAttribute;
-    for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) * 300, uv.getY(k) * 300);
-    // The terrain material tints by vertex colour; the far plane takes the open countryside's average tint.
-    farGeo.setAttribute('color', new THREE.Float32BufferAttribute(new Array(uv.count * 3).fill(0.95), 3));
-    farGeo.setAttribute('farness', new THREE.Float32BufferAttribute(new Array(uv.count).fill(1), 1));
-    const far = new THREE.Mesh(farGeo, this.terrain.mesh.material);
-    far.rotation.x = -Math.PI / 2;
-    far.position.y = this.terrain.horizonHeight - 0.5;
-    this.scene.add(far);
+    this.scene.add(this.terrain.buildFarPlane());
     this.scene.add(this.terrain.buildRidge());
     this.scene.add(buildScenery(o.track, q, (x, z) => this.terrain.heightAt(x, z)));
     this.trackside = buildTrackside(o.track, q);

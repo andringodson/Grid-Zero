@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { RacingLine } from '../ai/racingLine.ts';
 import { seededRandom } from '../math.ts';
 import type { Track } from '../track/Track.ts';
@@ -253,7 +254,9 @@ export function buildTrackMeshes(track: Track, q: QualitySettings, line?: Racing
   const capMat = new THREE.MeshStandardMaterial({ color: 0x8c8e90, roughness: 0.9 });
   for (const side of [-1, 1]) {
     const dist = side > 0 ? track.barrierRight : track.barrierLeft;
-    const wallGeo = wallRibbon(track, (i) => side * dist[i], 1.1, 4);
+    // Alongside the pit lane the garages are the barrier.
+    const open = (i: number) => side !== track.pit?.side || !track.pitWallAt(i * track.spacing);
+    const wallGeo = wallRibbon(track, (i) => side * dist[i], 1.1, 4, open);
     const wall = new THREE.Mesh(wallGeo, wallMat);
     wall.castShadow = q.shadows;
     wall.receiveShadow = true;
@@ -265,11 +268,13 @@ export function buildTrackMeshes(track: Track, q: QualitySettings, line?: Racing
         yFrom: () => 1.1,
         yTo: () => 1.1,
         repeatLength: 4,
+        include: open,
       }),
       capMat,
     );
     group.add(cap);
   }
+  if (track.pit) group.add(pitLane(track, q, asphalt, lineMat, wallMat, capMat));
 
   // Start/finish line: a 2 m chequered strip across the track.
   const startLine = new THREE.Mesh(
@@ -308,6 +313,100 @@ export function buildTrackMeshes(track: Track, q: QualitySettings, line?: Racing
   return group;
 }
 
+/**
+ * The pit lane: the pit road's asphalt, the pit wall with its nose at each end, the line between the fast lane and
+ * the boxes, speed-limit lines across the lane, and a painted outline for each team's box.
+ */
+function pitLane(
+  track: Track,
+  q: QualitySettings,
+  asphalt: ReturnType<typeof asphaltTextures>,
+  lineMat: THREE.Material,
+  wallMat: THREE.Material,
+  capMat: THREE.Material,
+): THREE.Group {
+  const pit = track.pit!;
+  const side = pit.side;
+  const group = new THREE.Group();
+  group.name = 'pit lane';
+  const along = (s: number) => Math.round(track.pitDistance(s) / track.spacing);
+  const start = Math.floor(pit.entry / track.spacing);
+  const wall = (i: number) => track.pitWallAt(i * track.spacing);
+
+  // No rubbered line here: the pit road gets plain asphalt.
+  const roadMat = new THREE.MeshStandardMaterial({
+    map: asphalt.map,
+    roughnessMap: asphalt.roughnessMap,
+    normalMap: asphalt.normalMap,
+    normalScale: new THREE.Vector2(0.6, 0.6),
+    roughness: 1,
+  });
+  markWettable(1, roadMat);
+  const road = new THREE.Mesh(
+    ribbon(track, {
+      from: (i) => side * edgeOf(track, i, side),
+      to: (i) => side * Math.max(edgeOf(track, i, side) + 0.01, track.pitOuter(i * track.spacing)),
+      yFrom: () => -0.005,
+      yTo: () => -0.005,
+      repeatLength: 14,
+      range: [start, start + along(pit.exit) + 1],
+    }),
+    roadMat,
+  );
+  road.receiveShadow = true;
+  group.add(road);
+
+  // Fast lane | boxes.
+  const divider = pit.wallOuter + (pit.lane - pit.wallOuter) * 2;
+  group.add(
+    new THREE.Mesh(
+      ribbon(track, { from: () => side * (divider - 0.08), to: () => side * (divider + 0.08), yFrom: () => 0.002, yTo: () => 0.002, repeatLength: 10, include: wall }),
+      lineMat,
+    ),
+  );
+
+  // Painted marks, laid flat: speed-limit lines across the lane and an outline round each box.
+  const paint = new THREE.MeshStandardMaterial({ color: 0xf2c400, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  markWettable(1, paint);
+  const marks: THREE.BufferGeometry[] = [];
+  const mark = (s: number, lateral: number, length: number, width: number) => {
+    const p = track.pointAt(s, side * lateral);
+    marks.push(new THREE.PlaneGeometry(length, width).rotateX(-Math.PI / 2).rotateY(-p.heading).translate(p.x, p.y + 0.003, p.z));
+  };
+  const laneWidth = pit.garage - pit.wallOuter;
+  for (const s of [pit.wallStart, pit.wallEnd]) mark(s, pit.wallOuter + laneWidth / 2, 0.4, laneWidth);
+  for (const b of pit.boxes) {
+    mark(b - 3, pit.box, 0.15, 3.4);
+    mark(b + 3, pit.box, 0.15, 3.4);
+    mark(b, pit.box - 1.7, 6, 0.15);
+    mark(b, pit.box + 1.7, 6, 0.15);
+  }
+  group.add(new THREE.Mesh(mergeGeometries(marks)!, paint));
+
+  // The pit wall: concrete faces on both sides, a cap, and a closed nose at each end.
+  for (const lateral of [pit.wallInner, pit.wallOuter]) {
+    const face = new THREE.Mesh(wallRibbon(track, () => side * lateral, 1.1, 4, wall), wallMat);
+    face.castShadow = q.shadows;
+    face.receiveShadow = true;
+    group.add(face);
+  }
+  group.add(
+    new THREE.Mesh(
+      ribbon(track, { from: () => side * pit.wallInner, to: () => side * pit.wallOuter, yFrom: () => 1.1, yTo: () => 1.1, repeatLength: 4, include: wall }),
+      capMat,
+    ),
+  );
+  const thickness = pit.wallOuter - pit.wallInner;
+  for (const s of [pit.wallStart, pit.wallEnd]) {
+    const p = track.pointAt(s, side * (pit.wallInner + thickness / 2));
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.7, thickness), wallMat);
+    nose.position.set(p.x, p.y + 0.25, p.z);
+    nose.rotation.y = -p.heading;
+    group.add(nose);
+  }
+  return group;
+}
+
 /** Asphalt reaches under the kerbs where they exist, so no grass shows through their slope. */
 function edgeOf(track: Track, i: number, side: number): number {
   const kerb = side > 0 ? track.kerbRight[i] : track.kerbLeft[i];
@@ -315,7 +414,13 @@ function edgeOf(track: Track, i: number, side: number): number {
 }
 
 /** Vertical wall at a lateral offset with texture repeating every `repeatLength` metres. */
-function wallRibbon(track: Track, offset: (i: number) => number, height: number, repeatLength: number): THREE.BufferGeometry {
+function wallRibbon(
+  track: Track,
+  offset: (i: number) => number,
+  height: number,
+  repeatLength: number,
+  include: (i: number) => boolean = () => true,
+): THREE.BufferGeometry {
   const positions: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
@@ -333,6 +438,7 @@ function wallRibbon(track: Track, offset: (i: number) => number, height: number,
     uvs.push(u, 0, u, 1);
   }
   for (let k = 0; k < track.count; k++) {
+    if (!include(k) || !include(track.wrap(k + 1))) continue;
     const a = k * 2;
     indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
   }

@@ -196,6 +196,45 @@ export class Terrain {
   }
 
   /**
+   * Level land from the heightfield's edge to the horizon. It has a hole where the heightfield is: the countryside
+   * settles to this level only at the edge, so inside it the plane would cover low ground, track included, for
+   * any camera above it. The hole is a little smaller than the heightfield, so the plane tucks under its edge.
+   */
+  buildFarPlane(): THREE.Mesh {
+    const half = 6000;
+    const inset = 2 * CELL;
+    const x1 = this.x0 + (this.nx - 1) * CELL;
+    const z1 = this.z0 + (this.nz - 1) * CELL;
+    // Shape space is x by -z: the shape is laid flat by turning it -90 degrees about x.
+    const outer = new THREE.Shape([
+      new THREE.Vector2(-half, -half),
+      new THREE.Vector2(half, -half),
+      new THREE.Vector2(half, half),
+      new THREE.Vector2(-half, half),
+    ]);
+    outer.holes.push(
+      new THREE.Path([
+        new THREE.Vector2(this.x0 + inset, -(this.z0 + inset)),
+        new THREE.Vector2(this.x0 + inset, -(z1 - inset)),
+        new THREE.Vector2(x1 - inset, -(z1 - inset)),
+        new THREE.Vector2(x1 - inset, -(this.z0 + inset)),
+      ]),
+    );
+    const geo = new THREE.ShapeGeometry(outer);
+    geo.rotateX(-Math.PI / 2);
+    const uv = geo.getAttribute('uv') as THREE.BufferAttribute;
+    // Shape UVs are in metres; the grass repeats every 40 m, as on the terrain.
+    for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) / 40, uv.getY(k) / 40);
+    // The terrain material tints by vertex colour; the far land takes the open countryside's average tint.
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(new Array(uv.count * 3).fill(0.95), 3));
+    geo.setAttribute('farness', new THREE.Float32BufferAttribute(new Array(uv.count).fill(1), 1));
+    const far = new THREE.Mesh(geo, this.mesh.material);
+    far.position.y = this.horizonHeight - 0.5;
+    far.name = 'far land';
+    return far;
+  }
+
+  /**
    * Mountains on the horizon: a ring of ridges well beyond the countryside. Coloured as distant mountains look,
    * hazed toward the sky, with fog off so they stay visible as silhouettes past the draw distance.
    */

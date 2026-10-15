@@ -14,7 +14,6 @@ export function buildScenery(track: Track, q: QualitySettings, groundAt: (x: num
   const group = new THREE.Group();
   group.name = 'scenery';
   group.add(grandstands(track, q));
-  group.add(pitBuilding(track, q));
   group.add(brakingBoards(track));
   group.add(trees(track, q, groundAt));
   return group;
@@ -71,46 +70,6 @@ function grandstands(track: Track, q: QualitySettings): THREE.Group {
     stand.rotation.y = alongTrack(p.heading);
     group.add(stand);
   }
-  return group;
-}
-
-/** Pit and paddock building on the inside of the main straight, with a glazed upper floor that reflects the sky. */
-function pitBuilding(track: Track, q: QualitySettings): THREE.Group {
-  const group = new THREE.Group();
-  const s = track.length - 200;
-  const i = Math.floor(s / track.spacing);
-  const p = track.pointAt(s, track.barrierRight[i] + 14);
-  const length = 260;
-
-  const base = new THREE.Mesh(
-    new THREE.BoxGeometry(length, 6, 18),
-    new THREE.MeshStandardMaterial({ color: 0xe4e6e8, roughness: 0.7 }),
-  );
-  base.position.y = 3;
-  const glass = new THREE.Mesh(
-    new THREE.BoxGeometry(length, 5, 16),
-    new THREE.MeshStandardMaterial({ color: 0x1b2633, roughness: 0.08, metalness: 0.9 }),
-  );
-  glass.position.set(0, 8.5, 1);
-  const roof = new THREE.Mesh(
-    new THREE.BoxGeometry(length + 4, 0.6, 22),
-    new THREE.MeshStandardMaterial({ color: 0xf2f4f6, roughness: 0.5 }),
-  );
-  roof.position.y = 11.3;
-  // Dark garage openings facing the track.
-  const doors = new THREE.Mesh(
-    new THREE.BoxGeometry(length - 10, 4.2, 0.2),
-    new THREE.MeshStandardMaterial({ color: 0x15181c, roughness: 0.8 }),
-  );
-  doors.position.set(0, 2.3, -9.05);
-  for (const m of [base, glass, roof, doors]) {
-    m.castShadow = q.shadows;
-    m.receiveShadow = true;
-    group.add(m);
-  }
-  group.position.set(p.x, p.y + GROUND_Y, p.z);
-  // Local -z faces the track, which is on the building's left.
-  group.rotation.y = alongTrack(p.heading);
   return group;
 }
 
