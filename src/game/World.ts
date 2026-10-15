@@ -103,12 +103,25 @@ export class World {
     const p = this.track.project(car.x, car.z, this.centreHint);
     this.centreHint = p.index;
     this.projection = p;
-    const limit = this.track.barrierAt(p) - CAR_HALF_WIDTH;
-    const excess = Math.abs(p.lateral) - limit;
+    const a = Math.abs(p.lateral);
+    let side = Math.sign(p.lateral);
+    let excess = a - (this.track.barrierAt(p) - CAR_HALF_WIDTH);
+    // The pit wall has a face on each side: push the car out of whichever it is nearer.
+    const pit = this.track.pit;
+    if (excess <= 0 && pit && side === pit.side && this.track.pitWallAt(p.s)) {
+      const inner = pit.wallInner - CAR_HALF_WIDTH;
+      const outer = pit.wallOuter + CAR_HALF_WIDTH;
+      if (a > inner && a < outer) {
+        if (a - inner < outer - a) excess = a - inner;
+        else {
+          excess = outer - a;
+          side = -side;
+        }
+      }
+    }
     if (excess <= 0) return { impact: 0, frontal: 0 };
 
     // Outward normal: toward the barrier the car is touching.
-    const side = Math.sign(p.lateral);
     const nx = -Math.sin(p.heading) * side;
     const nz = Math.cos(p.heading) * side;
     car.x -= nx * excess;

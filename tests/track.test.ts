@@ -95,14 +95,15 @@ test('run-off: gravel outside faster corners, asphalt outside the tight ones, no
   assert.equal(outside[tightest], RUNOFF_ASPHALT);
 });
 
-test('surfaces beyond the kerb follow the run-off', () => {
+test('surfaces beyond the kerb follow the run-off, or the pit road', () => {
   for (let k = 0; k < track.count; k += 7) {
     for (const [sideSign, side] of [[-1, track.runoffLeft], [1, track.runoffRight]] as const) {
       const lateral = sideSign * (track.halfWidth + track.kerbWidth + 3);
       if (lateral * sideSign >= (sideSign > 0 ? track.barrierRight[k] : track.barrierLeft[k])) continue;
       const p = track.pointAt(k * track.spacing, lateral);
       const proj = track.project(p.x, p.z, k);
-      const want = side[proj.index] === RUNOFF_GRAVEL ? 'gravel' : side[proj.index] === RUNOFF_ASPHALT ? 'runoff' : 'grass';
+      const pitRoad = track.pit?.side === sideSign && Math.abs(lateral) <= track.pitOuter(proj.s);
+      const want = pitRoad ? 'track' : side[proj.index] === RUNOFF_GRAVEL ? 'gravel' : side[proj.index] === RUNOFF_ASPHALT ? 'runoff' : 'grass';
       assert.equal(track.surfaceAt(proj), want);
     }
   }

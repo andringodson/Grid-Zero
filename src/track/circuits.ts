@@ -9,6 +9,24 @@ export interface CircuitDefinition {
   heights?: readonly number[];
   /** Camber in radians at each control point: positive raises the right-hand edge. Omit for none. */
   camber?: readonly number[];
+  /** Pit lane alongside a straight. Omit for none. */
+  pit?: PitDefinition;
+}
+
+/** Where the pit lane runs, in metres along the lap from the start/finish line (negative: before the line). */
+export interface PitDefinition {
+  /** 1: on the right of the track; -1: on the left. */
+  side: 1 | -1;
+  /** The pit road leaves the track edge. */
+  entry: number;
+  /** The pit wall between track and pit lane runs from here... */
+  wallStart: number;
+  /** ...to here, alongside the garages. */
+  wallEnd: number;
+  /** The pit road has merged back into the track. */
+  exit: number;
+  /** The first team's box; the rest follow at BOX_SPACING. */
+  firstBox: number;
 }
 
 /**
@@ -60,4 +78,6 @@ export const HALDEN_RING: CircuitDefinition = {
   heights: [0, -1.5, -3, -2, 2, 6, 10, 12.5, 14.5, 14, 11, 8, 5.5, 1.5, 0, 0.5, 3.5, 7.5, 9.5, 10, 9.5, 7, 4, 2, 1.5, 0.8],
   // Banked a little through the final hairpin and the Turn 4 sweeper (both right-handers: left edge higher).
   camber: [0, 0, 0, 0, 0, 0, 0, 0, 0, -0.03, -0.04, -0.03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -0.02, -0.05, -0.04, 0],
+  // Along the main straight on the infield side, rejoining well before the braking zone for Turn 1.
+  pit: { side: 1, entry: -470, wallStart: -330, wallEnd: 150, exit: 290, firstBox: -236 },
 };

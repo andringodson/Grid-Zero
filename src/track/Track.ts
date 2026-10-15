@@ -1,5 +1,5 @@
 import { wrapAngle } from '../math.ts';
-import type { CircuitDefinition } from './circuits.ts';
+import type { CircuitDefinition, PitDefinition } from './circuits.ts';
 
 export type Surface = 'track' | 'kerb' | 'grass' | 'gravel' | 'runoff';
 
@@ -26,6 +26,35 @@ export interface TrackPoint {
   z: number;
   heading: number;
 }
+
+/** Pit lane cross-section, metres beyond the track edge: pit wall, then the fast lane, then the boxes, then the garages. */
+const PIT_WALL_GAP = 2.5;
+const PIT_WALL_THICKNESS = 0.8;
+const PIT_FAST_LANE = 6;
+const PIT_WORKING_LANE = 6.2;
+/** Distance between neighbouring teams' boxes along the pit lane. */
+export const BOX_SPACING = 16;
+/** Teams with a box in the pit lane. */
+const BOXES = 10;
+
+/** A pit lane in track terms: distances along the lap in [0, length) and unsigned offsets from the centreline. */
+export interface PitLane extends PitDefinition {
+  wallInner: number;
+  wallOuter: number;
+  /** Centre of the fast lane, where cars drive at the speed limit. */
+  lane: number;
+  /** Centre of the boxes, where cars stop. */
+  box: number;
+  /** Face of the garages: the barrier on that side alongside the pit wall. */
+  garage: number;
+  /** Where each team's box is along the lap. */
+  boxes: number[];
+}
+
+const smoothstep01 = (t: number) => {
+  const x = Math.min(1, Math.max(0, t));
+  return x * x * (3 - 2 * x);
+};
 
 const SAMPLE_SPACING = 2;
 const DENSE_STEPS = 64;
@@ -90,6 +119,7 @@ export class Track {
   readonly runoffRight: Uint8Array;
   /** Start of each timing sector, in metres from the line. */
   readonly sectorStarts: readonly number[];
+  readonly pit: PitLane | null;
 
   constructor(def: CircuitDefinition) {
     this.id = def.id;
@@ -257,6 +287,61 @@ export class Track {
     }
 
     this.sectorStarts = [0, this.length / 3, (2 * this.length) / 3];
+
+    // 7. Pit lane: the garages are the barrier on that side for as long as the pit wall runs.
+    this.pit = null;
+    if (def.pit) {
+      const wallInner = this.halfWidth + PIT_WALL_GAP;
+      const wallOuter = wallInner + PIT_WALL_THICKNESS;
+      const p = def.pit;
+      this.pit = {
+        ...p,
+        entry: this.wrapS(p.entry),
+        wallStart: this.wrapS(p.wallStart),
+        wallEnd: this.wrapS(p.wallEnd),
+        exit: this.wrapS(p.exit),
+        firstBox: this.wrapS(p.firstBox),
+        wallInner,
+        wallOuter,
+        lane: wallOuter + PIT_FAST_LANE / 2,
+        box: wallOuter + PIT_FAST_LANE + PIT_WORKING_LANE / 2,
+        garage: wallOuter + PIT_FAST_LANE + PIT_WORKING_LANE,
+        boxes: Array.from({ length: BOXES }, (_, k) => this.wrapS(p.firstBox + k * BOX_SPACING)),
+      };
+      const barrier = p.side > 0 ? this.barrierRight : this.barrierLeft;
+      for (let k = 0; k < count; k++) {
+        if (this.pitWallAt(k * this.spacing)) barrier[k] = Math.min(barrier[k], this.pit.garage);
+      }
+    }
+  }
+
+  /** Metres from the pit entry to `s`, along the lap. */
+  pitDistance(s: number): number {
+    return this.pit ? this.wrapS(s - this.pit.entry) : Infinity;
+  }
+
+  /** True alongside the pit wall. */
+  pitWallAt(s: number): boolean {
+    const pit = this.pit;
+    if (!pit) return false;
+    const u = this.pitDistance(s);
+    return u >= this.pitDistance(pit.wallStart) && u <= this.pitDistance(pit.wallEnd);
+  }
+
+  /**
+   * How far from the centreline the pit road's asphalt reaches at `s` (0 where there is none). It fans out from the
+   * track edge after the entry, runs out to the garages alongside the pit wall, and narrows back at the exit.
+   */
+  pitOuter(s: number): number {
+    const pit = this.pit;
+    if (!pit) return 0;
+    const u = this.pitDistance(s);
+    const a = this.pitDistance(pit.wallStart);
+    const b = this.pitDistance(pit.wallEnd);
+    const c = this.pitDistance(pit.exit);
+    if (u > c) return 0;
+    const f = u < a ? smoothstep01(u / a) : u > b ? smoothstep01((c - u) / (c - b)) : 1;
+    return this.halfWidth + (pit.garage - this.halfWidth) * f;
   }
 
   wrap(i: number): number {
@@ -359,6 +444,7 @@ export class Track {
   surfaceAt(p: TrackProjection): Surface {
     const a = Math.abs(p.lateral);
     if (a <= this.halfWidth) return 'track';
+    if (this.pit && Math.sign(p.lateral) === this.pit.side && a <= this.pitOuter(p.s)) return 'track';
     const kerb = p.lateral > 0 ? this.kerbRight[p.index] : this.kerbLeft[p.index];
     if (kerb && a <= this.halfWidth + this.kerbWidth) return 'kerb';
     const runoff = p.lateral > 0 ? this.runoffRight[p.index] : this.runoffLeft[p.index];
