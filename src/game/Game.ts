@@ -18,7 +18,7 @@ import { ReflectionProbe } from '../render/reflections.ts';
 import { createSpeedBlurPass } from '../render/speedBlur.ts';
 import { buildTrackside, type Trackside } from '../render/trackside.ts';
 import { GhostCar } from '../render/ghostCar.ts';
-import { createEnvironment, type Environment } from '../render/environment.ts';
+import { createEnvironment, type Environment, type TimeOfDay } from '../render/environment.ts';
 import type { QualitySettings } from '../render/quality.ts';
 import { buildScenery } from '../render/scenery.ts';
 import { GROUND_DROP, Terrain } from '../render/terrain.ts';
@@ -50,6 +50,7 @@ export interface GameOptions {
   quality: QualitySettings;
   assists: Assists;
   input: Input;
+  timeOfDay?: TimeOfDay;
   /** Called after physics each frame, before rendering; for timing, HUD and audio. */
   onFrame?: (game: Game, info: FrameInfo) => void;
 }
@@ -118,13 +119,13 @@ export class Game {
     this.renderer.setSize(o.container.clientWidth, o.container.clientHeight);
     // Neutral keeps the sky's blue; ACES desaturated it to grey.
     this.renderer.toneMapping = THREE.NeutralToneMapping;
-    this.renderer.toneMappingExposure = 0.75;
     this.renderer.shadowMap.enabled = q.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     o.container.appendChild(this.renderer.domElement);
 
     this.rig = new CameraRig(o.container.clientWidth / o.container.clientHeight);
-    this.env = createEnvironment(this.renderer, this.scene, q);
+    this.env = createEnvironment(this.renderer, this.scene, q, o.timeOfDay);
+    this.renderer.toneMappingExposure = this.env.exposure;
 
     this.car = new Car(GZ26, o.assists);
     const grid = o.track.gridSlot(0);
@@ -173,7 +174,7 @@ export class Game {
       this.composer.addPass(new RenderPass(this.scene, this.rig.camera));
       const size = new THREE.Vector2(o.container.clientWidth, o.container.clientHeight);
       // Only real highlights bloom (sun glints on paint, glass and chrome), not the sky or sunlit concrete.
-      this.composer.addPass(new UnrealBloomPass(size, 0.38, 0.45, 1.25));
+      this.composer.addPass(new UnrealBloomPass(size, 0.38, 0.45, 1.45));
       this.speedBlur = createSpeedBlurPass();
       this.composer.addPass(this.speedBlur);
       this.composer.addPass(new OutputPass());

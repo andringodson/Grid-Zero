@@ -26,6 +26,9 @@ uniform float coverage;
 uniform float cloudHeight;
 /** 0 for fair-weather cumulus, 1 for a dark rain deck. */
 uniform float gloom;
+uniform vec3 sunTint;
+uniform vec3 shadowTint;
+uniform vec3 hazeTint;
 varying vec3 vWorldPosition;
 
 float hash(vec2 p) {
@@ -86,8 +89,8 @@ void main() {
   float side = 1.0 - smoothstep(0.05, 0.55, dir.y);
   lit = clamp(lit + side * (0.5 - 0.5 * mu) * 0.45, 0.0, 1.0);
 
-  vec3 sunCol = vec3(1.28, 1.24, 1.17);
-  vec3 shadowCol = vec3(0.6, 0.66, 0.77);
+  vec3 sunCol = sunTint;
+  vec3 shadowCol = shadowTint;
   vec3 col = mix(shadowCol, sunCol, lit);
   // Thick cores seen from underneath are darker; thin edges glow.
   col *= mix(1.0, 0.78, smoothstep(0.5, 1.0, d) * (1.0 - side * 0.6));
@@ -98,7 +101,7 @@ void main() {
   // Rain cloud: thick, grey and lit from above only, so the sun's glow fades out of it.
   col = mix(col, vec3(0.42, 0.45, 0.5) * (0.75 + 0.35 * lit), gloom);
   // Distant cloud takes on the haze colour.
-  col = mix(mix(vec3(0.82, 0.87, 0.94), vec3(0.55, 0.58, 0.62), gloom), col, smoothstep(0.0, 0.3, dir.y));
+  col = mix(mix(hazeTint, vec3(0.55, 0.58, 0.62), gloom), col, smoothstep(0.0, 0.3, dir.y));
 
   gl_FragColor = vec4(col, d * horizon * 0.96);
   #include <tonemapping_fragment>
@@ -120,7 +123,14 @@ export interface CloudLayer {
  * clouds shrink toward the horizon with proper perspective. Lit from the sun with a single self-shadowing sample,
  * drawn on the far plane so the scene always sits in front of it, and never fogged.
  */
-export function createCloudLayer(q: QualitySettings, sunDirection: THREE.Vector3): CloudLayer {
+/** How the clouds are lit: their sunlit side, their shaded side, and the haze they fade into at the horizon. */
+export interface CloudTints {
+  sun: THREE.Color;
+  shadow: THREE.Color;
+  haze: THREE.Color;
+}
+
+export function createCloudLayer(q: QualitySettings, sunDirection: THREE.Vector3, tints: CloudTints): CloudLayer {
   const material = new THREE.ShaderMaterial({
     name: 'Clouds',
     uniforms: {
@@ -129,6 +139,9 @@ export function createCloudLayer(q: QualitySettings, sunDirection: THREE.Vector3
       coverage: { value: 0.5 },
       cloudHeight: { value: CLOUD_HEIGHT },
       gloom: { value: 0 },
+      sunTint: { value: tints.sun },
+      shadowTint: { value: tints.shadow },
+      hazeTint: { value: tints.haze },
     },
     defines: { OCTAVES: OCTAVES[q.tier] },
     vertexShader,
