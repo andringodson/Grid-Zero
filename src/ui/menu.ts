@@ -5,6 +5,7 @@ import { TEAMS, type Team } from '../game/teams.ts';
 import type { WeatherMode } from '../game/weather.ts';
 import type { Assists } from '../physics/Car.ts';
 import { COMPOUNDS } from '../physics/tyre.ts';
+import { CIRCUITS } from '../track/circuits.ts';
 import type { QualityTier } from '../render/quality.ts';
 import type { TouchSteering } from './touch.ts';
 
@@ -184,6 +185,16 @@ export class Menu {
       b.setAttribute('aria-pressed', String(this.settings.quality === tier));
     }
     quality.appendChild(seg);
+
+    // Circuit.
+    const circuitSection = this.section(panel, 'Circuit', 'Changing circuit reloads the game.');
+    const circuits = document.createElement('div');
+    circuits.className = 'menu-seg';
+    for (const c of CIRCUITS) {
+      const b = this.button(circuits, c.name.toUpperCase(), () => void apply({ ...this.settings, trackId: c.id }, 'trackId'), 'menu-seg-btn');
+      b.setAttribute('aria-pressed', String(this.settings.trackId === c.id));
+    }
+    circuitSection.appendChild(circuits);
 
     // Race.
     const race = this.section(panel, 'Quick race', 'Opponent pace, and race length in laps.');

@@ -92,7 +92,7 @@ Updated 2026-10-16.
 | Visible wing damage | Done |
 | Phone layout checked in an emulated landscape phone (740x360, touch) | Done |
 | Performance tuning on real phones | To do: needs a real device |
-| Second circuit | Next |
+| Second circuit: Kestrel Valley (3.6 km, 33 m of elevation) | Done |
 | Public deployment | Waiting on a decision: GitHub Pages is free only for public repositories |
 
 ## Working rules

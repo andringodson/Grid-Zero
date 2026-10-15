@@ -1,5 +1,6 @@
 import type { Assists } from '../physics/Car.ts';
 import { COMPOUNDS, type TyreCompound } from '../physics/tyre.ts';
+import { CIRCUITS } from '../track/circuits.ts';
 import { detectQualityTier, type QualityTier } from '../render/quality.ts';
 import type { TouchSteering } from '../ui/touch.ts';
 import { loadSetting, saveSetting } from './storage.ts';
@@ -10,6 +11,8 @@ export type Difficulty = 'easy' | 'medium' | 'hard';
 
 export interface Settings {
   quality: QualityTier;
+  /** The circuit raced on. */
+  trackId: string;
   assists: Assists;
   volume: number;
   touchSteering: TouchSteering;
@@ -42,6 +45,7 @@ export function loadSettings(): Settings {
   const saved = loadSetting<Partial<Settings>>('settings', {});
   return {
     quality: saved.quality ?? detectQualityTier(),
+    trackId: CIRCUITS.some((c) => c.id === saved.trackId) ? saved.trackId! : CIRCUITS[0].id,
     assists: { ...DEFAULT_ASSISTS, ...saved.assists },
     volume: typeof saved.volume === 'number' ? saved.volume : 0.8,
     touchSteering: saved.touchSteering === 'tilt' ? 'tilt' : 'drag',

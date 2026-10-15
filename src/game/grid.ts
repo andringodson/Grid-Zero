@@ -10,10 +10,11 @@ export function idealLap(track: Track, line: RacingLine): number {
 
 /**
  * An AI driver's flying lap at `pace`, as a multiple of the ideal lap. Fitted to AI laps measured on Halden Ring
- * (pace 0.86 to 0.985, dry, mediums): drivers lose time everywhere, not just in proportion to pace.
+ * (pace 0.86 to 0.985, dry, mediums): drivers lose time everywhere, not just in proportion to pace. Other circuits
+ * scale it by their measured `lapScale`.
  */
-export function aiLapTime(ideal: number, pace: number): number {
-  return ideal * (0.374 + 0.823 / pace);
+export function aiLapTime(ideal: number, pace: number, scale = 1): number {
+  return ideal * (0.374 + 0.823 / pace) * scale;
 }
 
 /** Grid slots by qualifying time, fastest on pole; a car with no time (Infinity) starts from the back. */

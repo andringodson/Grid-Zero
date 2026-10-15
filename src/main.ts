@@ -18,7 +18,7 @@ import { Weather } from './game/weather.ts';
 import { Input } from './input/Input.ts';
 import { COMPOUNDS, type TyreCompound } from './physics/tyre.ts';
 import { QUALITY, type QualityTier } from './render/quality.ts';
-import { HALDEN_RING } from './track/circuits.ts';
+import { CIRCUITS } from './track/circuits.ts';
 import { Track } from './track/Track.ts';
 import { Hud } from './ui/hud.ts';
 import { Menu, type SessionMode } from './ui/menu.ts';
@@ -30,8 +30,8 @@ type Mode = 'menu' | 'driving' | 'paused' | 'results';
 const OPPONENTS: Record<QualityTier, number> = { low: 5, medium: 7, high: 9, ultra: 9 };
 /** Seconds between the player taking the flag and the results screen. */
 const RESULTS_DELAY = 4;
-/** Race fuel: about 1.2 kg a lap on Halden Ring, plus a margin. */
-const FUEL_PER_LAP = 1.35;
+/** Race fuel: about 1.2 kg for each lap of Halden Ring's 4.3 km, plus a margin. */
+const FUEL_PER_KM = 0.31;
 const FUEL_MARGIN = 1.5;
 const TRIAL_FUEL = 12;
 
@@ -42,7 +42,8 @@ const teamOf = (id: string) => TEAMS.find((t) => t.id === id) ?? TEAMS[0];
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 
 const input = new Input();
-const track = new Track(HALDEN_RING);
+const circuit = CIRCUITS.find((c) => c.id === settings.trackId) ?? CIRCUITS[0];
+const track = new Track(circuit);
 let timer = new LapTimer(track.length, track.sectorStarts, loadBestLap(track.id));
 const hud = new Hud(document.body, track);
 const touch = new TouchControls(document.body, input.touch);
@@ -304,7 +305,8 @@ const menu = new Menu(document.body, settings, track.name, {
     }
     settings = next;
     saveSettings(settings);
-    if (changed === 'quality') {
+    // The circuit and the graphics tier are built into the scene: rebuild it.
+    if (changed === 'quality' || changed === 'trackId') {
       location.reload();
       return true;
     }
@@ -394,7 +396,7 @@ function startSession(next: SessionMode): void {
   // Qualifying: rivals' laps from their pace, give or take a few tenths on the day; the player's from their best
   // Time Trial lap, or the back of the grid without one.
   const best = timer.best?.time ?? Infinity;
-  const slots = gridSlots([best, ...skills.map((s) => aiLapTime(IDEAL_LAP, s.pace) + (Math.random() - 0.5) * 0.6)]);
+  const slots = gridSlots([best, ...skills.map((s) => aiLapTime(IDEAL_LAP, s.pace, circuit.lapScale) + (Math.random() - 0.5) * 0.6)]);
   const playerSlot = slots[0];
   const compounds = rivals.map(() => pickCompound());
   const opponents = rivals.map((r, i) => ({
@@ -414,7 +416,7 @@ function startSession(next: SessionMode): void {
       return { id: o.id, name: rivals[i].name, code: codeOf(rivals[i].name), teamName: o.team.name, colour, isPlayer: false };
     }),
   ];
-  prepareCars(settings.raceLaps * FUEL_PER_LAP + FUEL_MARGIN, (id) => compounds[opponents.findIndex((o) => o.id === id)]);
+  prepareCars(settings.raceLaps * (track.length / 1000) * FUEL_PER_KM + FUEL_MARGIN, (id) => compounds[opponents.findIndex((o) => o.id === id)]);
   race = new Race(track.length, settings.raceLaps, entrants, entrants.map((e) => game.sOf(e.id)), {
     drsZones,
     // Real races enable DRS two laps in; short races get it a lap earlier so it comes into play.

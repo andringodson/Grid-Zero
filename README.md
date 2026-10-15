@@ -15,8 +15,8 @@ Everything is generated in code: the circuit, the cars, the textures and the eng
 - **Physics at 240 Hz.** The car model has Pacejka tyre curves, load sensitivity, weight transfer, downforce and drag that grow with the square of speed, an 8-speed gearbox, and a friction circle, so braking or wheelspin costs cornering grip. The GZ-26 does 0–100 km/h in 2.8 s, reaches 337 km/h, and brakes at 5 g.
 - **Tyres and strategy:** soft, medium and hard slicks, intermediates and full wets, each with its own grip, wear and temperature window. Fuel burns off, a hybrid system deploys and harvests energy, and DRS opens within a second of the car ahead.
 - **Pit stops:** drive onto the pit road and the crew takes over. You run the pit lane at the 80 km/h limit, stop in your team's box, and get tyres for the conditions and a new nose if needed; a stop costs about 23 s. Rivals pit when the weather turns or their wing breaks.
-- **AI drivers** follow a minimum-curvature racing line through a speed profile worked out from the car's grip. They overtake on the straights, follow when they can't pass, react to the lights, make the odd mistake, drive to the tyres and the weather, and lap Halden Ring in about 66–72 s, depending on difficulty.
-- **The circuit** has 17 m of elevation, crests and banking, gravel traps and asphalt run-off, rubber laid down on the racing line, and a pit lane with team garages.
+- **AI drivers** follow a minimum-curvature racing line through a speed profile worked out from the car's grip. They overtake on the straights, follow when they can't pass, react to the lights, make the odd mistake, drive to the tyres and the weather, and lap Halden Ring in about 66–72 s and Kestrel Valley in about 61–68 s, depending on difficulty.
+- **Two circuits,** both fictional. **Halden Ring** (4.3 km) has 17 m of elevation, a long main straight into a heavy-braking first corner, esses and a fast sweeper. **Kestrel Valley** (3.6 km) drops 30 m from a hairpin into esses on the valley floor, then climbs from a banked carousel up the back straight through a chicane. Both have crests and banking, gravel traps and asphalt run-off, rubber laid down on the racing line, and a pit lane with team garages. Choose the circuit in Settings.
 - **Engine sound** is synthesised live: a turbo V6 from its firing frequency, with turbo whistle, hybrid whine, gear-shift cuts and overrun pops. Tyres, wind, kerbs and impacts react to the physics.
 - **Graphics** use a physically based sky that also lights the car's clear-coat paint, real-time sun shadows, rain with spray behind the cars, a track that goes dark and glossy in the wet, tyre smoke and skid marks, visible wing damage, and four quality tiers from low to ultra with dynamic resolution.
 
@@ -47,10 +47,11 @@ Open the URL Vite prints. To try it on a phone on the same Wi-Fi network, run `n
 
 | Command | What it does |
 |---|---|
-| `npm test` | Unit and simulation tests: track geometry, vehicle physics against real-world figures, lap timing, collisions, weather and tyres, pit stops, qualifying, a full AI lap, and an 8-car race |
+| `npm test` | Unit and simulation tests: track geometry, vehicle physics against real-world figures, lap timing, collisions, weather and tyres, pit stops, qualifying, an AI lap and pit stop on every circuit, and an 8-car race |
 | `npm run build` | Type-checks and builds the production site into `dist/` |
 | `npm run preview` | Serves the production build at `/Grid-Zero/`, as GitHub Pages would |
 | `node scripts/make-icons.mjs` | Regenerates the app icons |
+| `node --experimental-strip-types scripts/kestrel-valley.ts` | Regenerates Kestrel Valley's layout, heights and banking |
 
 ## Tech
 
