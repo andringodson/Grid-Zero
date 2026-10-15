@@ -1,8 +1,9 @@
 import * as THREE from 'three';
+import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Car } from '../physics/Car.ts';
 import type { Livery } from '../game/teams.ts';
-import { carbonWeaveTexture, raceNumberTexture, sidewallTexture } from './textures.ts';
+import { AD_BRANDS, carbonWeaveTexture, raceNumberTexture, sidewallTexture, sponsorAtlas } from './textures.ts';
 
 /**
  * Procedural open-wheel car. Local axes: +x forward, +y up, +z right; the origin is the centre of gravity on the
@@ -210,6 +211,50 @@ export interface CarVisual {
   update(car: Car, dt?: number): void;
 }
 
+/**
+ * Sponsors on the bodywork, projected onto it so the lettering follows the curves: on the sidepods, the engine cover,
+ * the top of the nose and the rear-wing endplates. Three brands per team, picked from its colours; white lettering on
+ * dark paint, near-black on light. One mesh for all of them.
+ */
+function sponsorDecals(livery: Livery, mono: THREE.Mesh, pods: THREE.Mesh[], plates: THREE.Mesh[], a: number, rwX: number): THREE.Mesh {
+  const r = (livery.primary >> 16) & 255;
+  const g = (livery.primary >> 8) & 255;
+  const b = livery.primary & 255;
+  const light = 0.299 * r + 0.587 * g + 0.114 * b > 150;
+  const rows = AD_BRANDS.length;
+  const brand = (k: number) => ((livery.primary >> 4) + k * 3) % rows;
+  const geos: THREE.BufferGeometry[] = [];
+  const project = (target: THREE.Mesh, at: THREE.Vector3, facing: THREE.Euler, w: number, h: number, depth: number, row: number) => {
+    target.updateMatrixWorld(true);
+    const geo = new DecalGeometry(target, at, facing, new THREE.Vector3(w, h, depth));
+    // The decal's v runs 0..1 over its height: squeeze it into the brand's row of the atlas.
+    const uv = geo.getAttribute('uv') as THREE.BufferAttribute;
+    for (let k = 0; k < uv.count; k++) uv.setY(k, 1 - (row + 1 - uv.getY(k)) / rows);
+    geos.push(geo);
+  };
+  for (const side of [-1, 1]) {
+    // Facing outward from each side, so the lettering reads front to back on both.
+    const out = new THREE.Euler(0, side > 0 ? 0 : Math.PI, 0);
+    project(pods[side > 0 ? 1 : 0], new THREE.Vector3(-0.05, 0.36, side * 0.8), out, 0.8, 0.15, 0.3, brand(0));
+    project(mono, new THREE.Vector3(-1.3, 0.62, side * 0.22), out, 0.42, 0.085, 0.2, brand(1));
+    // The endplate is 2 cm thick: a shallow box takes its outer face only, not the inside.
+    project(plates[side > 0 ? 1 : 0], new THREE.Vector3(rwX, 0.74, side * 0.52), out, 0.5, 0.16, 0.03, brand(2));
+  }
+  project(mono, new THREE.Vector3(a - 0.1, 0.56, 0), new THREE.Euler(-Math.PI / 2, 0, 0), 0.42, 0.09, 0.3, brand(1));
+  const material = new THREE.MeshStandardMaterial({
+    map: sponsorAtlas(light),
+    transparent: true,
+    depthWrite: false,
+    roughness: 0.25,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4,
+  });
+  const mesh = new THREE.Mesh(mergeGeometries(geos)!, material);
+  mesh.name = 'sponsors';
+  return mesh;
+}
+
 /** Front wing damage beyond this shows on the model: the wing bent down on one side, its endplate gone. */
 export const BROKEN_WING = 0.25;
 
@@ -285,6 +330,8 @@ export function buildCarModel(
     paint,
   );
   body.add(mono);
+  const pods: THREE.Mesh[] = [];
+  const plates: THREE.Mesh[] = [];
 
   // Accent stripe along the nose.
   const noseTip = new THREE.Mesh(
@@ -310,6 +357,7 @@ export function buildCarModel(
       paint,
     );
     body.add(pod);
+    pods.push(pod);
     // Dark cooling inlet.
     const inlet = box(0.04, 0.3, 0.36, 0.56, 0.35, side * 0.56, black);
     body.add(inlet);
@@ -402,6 +450,7 @@ export function buildCarModel(
         paint,
       ),
     );
+    plates.push(body.children[body.children.length - 1] as THREE.Mesh);
   }
   body.add(rod(new THREE.Vector3(-2.2, 0.4, 0), new THREE.Vector3(rwX + 0.05, 0.86, 0), 0.025, carbon));
 
@@ -494,8 +543,11 @@ export function buildCarModel(
   shadow.renderOrder = 1;
   root.add(shadow);
 
+  // Projected before merging, while the body's parts are separate; added after, since merging drops texture coordinates.
+  const sponsors = sponsorDecals(livery, mono, pods, plates, a, rwX);
   mergeByMaterial(body);
   for (const spinner of spinners) mergeByMaterial(spinner);
+  body.add(sponsors);
 
   // Parts added after merging keep their texture coordinates or move on their own.
   const decal = (map: THREE.Texture) =>

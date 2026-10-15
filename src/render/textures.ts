@@ -433,6 +433,29 @@ export const AD_BRANDS: readonly { name: string; bg: string; fg: string }[] = [
   { name: 'OKAVI WATCHES', bg: '#1d1d1d', fg: '#c9a54a' },
 ];
 
+const sponsorAtlases = new Map<boolean, THREE.CanvasTexture>();
+
+/**
+ * The sponsors' names as they appear on a car: lettering only, white for dark paint or near-black for light paint,
+ * one brand per row like the board atlas. Shared by every car.
+ */
+export function sponsorAtlas(dark: boolean): THREE.CanvasTexture {
+  const cached = sponsorAtlases.get(dark);
+  if (cached) return cached;
+  const w = 512;
+  const h = 64;
+  const [c, ctx] = canvas(w, h * AD_BRANDS.length);
+  ctx.fillStyle = dark ? '#121417' : '#ffffff';
+  ctx.font = 'italic 900 44px Arial, Helvetica, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  AD_BRANDS.forEach((b, k) => ctx.fillText(b.name, w / 2, k * h + h / 2 + 2, w - 16));
+  const tex = finish(c, 4);
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  sponsorAtlases.set(dark, tex);
+  return tex;
+}
+
 /** All the sponsor boards in one atlas: board k occupies rows k/n..(k+1)/n. */
 export function adAtlasTexture(anisotropy: number): THREE.CanvasTexture {
   const w = 512;
