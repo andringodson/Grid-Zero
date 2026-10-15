@@ -29,7 +29,8 @@ export class Driver {
   readonly skill: DriverSkill;
   private readonly track: Track;
   private readonly line: RacingLine;
-  private hint = -1;
+  /** Projection hint; -1 makes the next lookup search the whole circuit (after the car was elsewhere). */
+  hint = -1;
   projection: TrackProjection | null = null;
   /** Sideways offset from the racing line the driver is moving toward, set by traffic planning. */
   laneTarget = 0;
@@ -87,8 +88,10 @@ export class Driver {
     const u = f - Math.floor(f);
     // Leaving the line costs most in slow corners, so moves off it shrink there.
     const cornerFactor = clamp((this.line.speed[i] - 35) / 30, 0.25, 1);
-    const off = this.line.offset[i] * (1 - u) + this.line.offset[j] * u + lane * cornerFactor;
-    const limit = t.halfWidth - 1.2;
+    const base = this.line.offset[i] * (1 - u) + this.line.offset[j] * u;
+    const off = base + lane * cornerFactor;
+    // Traffic moves stay on the track; a line that leaves it (into the pit lane) is followed as it is.
+    const limit = Math.max(t.halfWidth - 1.2, Math.abs(base));
     const o = clamp(off, -limit, limit);
     const cx = t.xs[i] + (t.xs[j] - t.xs[i]) * u;
     const cz = t.zs[i] + (t.zs[j] - t.zs[i]) * u;

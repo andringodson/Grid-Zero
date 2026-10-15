@@ -10,6 +10,7 @@ import { findDrsZones, inZone } from './game/drs.ts';
 import { Race, type RaceEntrant } from './game/Race.ts';
 import { DIFFICULTY_CONSISTENCY, DIFFICULTY_PACE, loadSettings, saveSettings, type Settings } from './game/settings.ts';
 import { GhostRecorder, ghostPose, type GhostLap, type GhostPose } from './game/ghost.ts';
+import { aiPitCall, BLANKET_TEMP, PIT_APPROACH, pitU, tyresFor, wrongTyres } from './game/pits.ts';
 import { loadBestLap, loadGhost, saveBestLap, saveGhost } from './game/storage.ts';
 import { TEAMS, type Team } from './game/teams.ts';
 import { Weather } from './game/weather.ts';
@@ -28,8 +29,6 @@ type Mode = 'menu' | 'driving' | 'paused' | 'results';
 const OPPONENTS: Record<QualityTier, number> = { low: 5, medium: 7, high: 9, ultra: 9 };
 /** Seconds between the player taking the flag and the results screen. */
 const RESULTS_DELAY = 4;
-/** Tyres come off the blankets at this temperature, below their window, so the first lap needs care. */
-const BLANKET_TEMP = 80;
 /** Race fuel: about 1.2 kg a lap on Halden Ring, plus a margin. */
 const FUEL_PER_LAP = 1.35;
 const FUEL_MARGIN = 1.5;
@@ -100,11 +99,12 @@ const game = new Game({
     }
 
     if (race) runRace(info.dt);
+    updatePits();
     updateDrs(info.input.drs);
     checkTrackLimits();
     if (g.car.wingDamage > 0.15 && !wingWarned) {
       wingWarned = true;
-      hud.flash('FRONT WING DAMAGE', 'bad', 3);
+      hud.flash('FRONT WING DAMAGE - PIT FOR A NEW NOSE', 'bad', 3);
     }
     if (info.input.reset) hud.onTiming(timer.invalidate('reset'));
     if (!g.held) {
@@ -150,6 +150,44 @@ function updateWeather(dt: number): void {
   }
 }
 
+let lastPitPhase: 'in' | 'service' | 'out' | null = null;
+let boxCalled = false;
+
+/**
+ * Pit calls. Rivals come in when their tyres are wrong for the track or their nose is broken (never on the last
+ * lap); the player gets the radio call, and a message at each stage of their own stop.
+ */
+function updatePits(): void {
+  if (race && !race.held) {
+    for (const fc of game.field.cars) {
+      if (!fc.driver || fc.pit || fc.pitRequest || race.standing(fc.id).lap >= race.laps) continue;
+      const u = pitU(track, fc.world.projection.s);
+      if (u < -PIT_APPROACH - 60 || u > -PIT_APPROACH) continue;
+      const tyres = aiPitCall(fc.id, fc.car, weather.wetness);
+      if (tyres) game.field.requestPit(fc, tyres);
+    }
+  }
+  const pit = game.playerPit;
+  const phase = pit?.phase ?? null;
+  if (phase !== lastPitPhase) {
+    if (phase === 'in') hud.flash('PIT LANE - SPEED LIMITER ON', 'info', 3);
+    else if (phase === 'out' && pit) hud.flash(`${pit.stopTime.toFixed(1)} s STOP - ${pit.compound.name.toUpperCase()}S FITTED`, 'best', 3);
+    lastPitPhase = phase;
+  }
+  // The radio call, once, when the tyres fitted become the wrong ones for the track.
+  const wrong = !pit && wrongTyres(weather.wetness, game.car.compound);
+  if (wrong && !boxCalled) {
+    hud.flash(`BOX BOX - ${tyresFor(weather.wetness, game.car.compound, drySlick()).name.toUpperCase()}S READY`, 'bad', 4);
+  }
+  boxCalled = wrong;
+}
+
+/** The player's dry tyre for a stop: their chosen slick, or mediums if they chose a rain tyre. */
+function drySlick(): TyreCompound {
+  const chosen = COMPOUNDS[settings.compound];
+  return chosen.id !== 'inter' && chosen.id !== 'wet' ? chosen : COMPOUNDS.medium;
+}
+
 function runRace(dt: number): void {
   if (!race) return;
   for (const e of race.update(dt, (id) => game.sOf(id))) {
@@ -184,14 +222,15 @@ function runRace(dt: number): void {
  */
 function updateDrs(toggle: boolean): void {
   const s = game.world.projection.s;
-  const available = game.held ? false : race ? race.drsAvailable(PLAYER_ID, s) : drsZones.some((z) => inZone(track, z, s));
+  const inPits = game.playerPit !== null;
+  const available = game.held || inPits ? false : race ? race.drsAvailable(PLAYER_ID, s) : drsZones.some((z) => inZone(track, z, s));
   if (!available) game.car.drsOpen = false;
   else if (toggle) game.car.drsOpen = !game.car.drsOpen;
   hud.setDrs(available, game.car.drsOpen);
   touch.setDrs(available, game.car.drsOpen);
   if (!race) return;
   for (const fc of game.field.cars) {
-    if (fc.driver) fc.car.drsOpen = race.drsAvailable(fc.id, fc.world.projection.s);
+    if (fc.driver) fc.car.drsOpen = !fc.pit && race.drsAvailable(fc.id, fc.world.projection.s);
   }
 }
 
@@ -317,6 +356,8 @@ function startSession(next: SessionMode): void {
   game.setGhost(null, game.playerLivery);
   weather = new Weather(settings.weather);
   rainAnnounced = weather.rain > 0;
+  lastPitPhase = null;
+  boxCalled = false;
   const tyres = playerCompound();
   game.setTeam(liveryFor(teamOf(settings.teamId), 0, tyres));
   const wetsFitted = tyres !== COMPOUNDS[settings.compound];
@@ -413,6 +454,9 @@ function setMode(next: Mode): void {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && mode === 'driving') setMode('paused');
 });
+
+// Driving into the pits gets the tyres for the conditions.
+game.field.pitTyres = (fc) => tyresFor(weather.wetness, fc.car.compound, drySlick());
 
 setMode('menu');
 game.start();

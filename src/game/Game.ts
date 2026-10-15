@@ -23,9 +23,9 @@ import { GROUND_DROP, Terrain } from '../render/terrain.ts';
 import { buildTrackMeshes } from '../render/trackMesh.ts';
 import { applyWetness, collectWettable } from '../render/wet.ts';
 import type { Track } from '../track/Track.ts';
-import { Field, type FieldCar } from './Field.ts';
+import { Field, type FieldCar, type PitStop } from './Field.ts';
 import type { GhostPose } from './ghost.ts';
-import type { Livery, Team } from './teams.ts';
+import { TEAMS, type Livery, type Team } from './teams.ts';
 import { World } from './World.ts';
 
 export const PHYSICS_HZ = 240;
@@ -142,6 +142,7 @@ export class Game {
     this.scene.add(this.rain.mesh);
     this.wettable = collectWettable(this.scene);
     this.player = this.field.addPlayer(PLAYER_ID, this.car, this.world);
+    this.player.box = this.boxOf(o.team);
     this.castShadows = q.shadows;
     this.livery = o.team.livery;
     this.visual = buildCarModel(this.car, o.team.livery, q.shadows);
@@ -186,7 +187,19 @@ export class Game {
     this.renderer.setAnimationLoop(null);
   }
 
+  /** The team's pit box: teams have boxes in the order they are listed. */
+  private boxOf(team: Team): number {
+    const boxes = this.track.pit?.boxes;
+    return boxes ? boxes[Math.max(0, TEAMS.findIndex((t) => t.id === team.id)) % boxes.length] : 0;
+  }
+
+  /** The player's pit stop in progress, if any. */
+  get playerPit(): PitStop | null {
+    return this.player.pit;
+  }
+
   resetCar(): void {
+    this.field.cancelPit(this.player);
     this.world.resetCar(this.car);
     this.rig.snap(this.car);
   }
@@ -204,6 +217,7 @@ export class Game {
   /** Puts the car back in its grid slot, stopped. */
   toGrid(slot = 0): void {
     const g = this.track.gridSlot(slot);
+    this.field.cancelPit(this.player);
     this.car.reset(g.x, g.z, g.heading);
     this.world.forgetPosition();
     this.world.projection = this.track.project(this.car.x, this.car.z);
@@ -256,6 +270,7 @@ export class Game {
 
   setTeam(team: Team): void {
     this.livery = team.livery;
+    this.player.box = this.boxOf(team);
     this.disposeVisual(this.visual);
     this.visual = buildCarModel(this.car, team.livery, this.castShadows);
     this.scene.add(this.visual.root);
@@ -267,6 +282,7 @@ export class Game {
     this.clearOpponents();
     for (const o of opponents) {
       const fc = this.field.addAI(o.id, GZ26, o.skill, o.slot);
+      fc.box = this.boxOf(o.team);
       const visual = buildCarModel(fc.car, o.team.livery, this.castShadows);
       this.scene.add(visual.root);
       visual.update(fc.car);

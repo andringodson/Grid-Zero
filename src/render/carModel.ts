@@ -531,9 +531,15 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean): C
     }
   });
 
+  let shownCompound: Car['compound'] | null = null;
   return {
     root,
     update(c: Car, dt = 0) {
+      // The sidewall band shows the compound fitted, which changes at a pit stop.
+      if (c.compound !== shownCompound) {
+        compoundMat.color.setHex(c.compound.colour);
+        shownCompound = c.compound;
+      }
       // On the ground under the car, pitched and rolled with the slope. Yaw first, then pitch, then roll.
       root.position.set(c.x, c.y, c.z);
       root.rotation.set(-c.roll, -c.yaw, c.pitch, 'YZX');
