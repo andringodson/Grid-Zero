@@ -213,32 +213,48 @@ export interface CarVisual {
 /** Front wing damage beyond this shows on the model: the wing bent down on one side, its endplate gone. */
 export const BROKEN_WING = 0.25;
 
-export function buildCarModel(car: Car, livery: Livery, castShadows: boolean, wingBroken = false): CarVisual {
+/**
+ * `reflections`, when given, is what the car's glossy surfaces mirror (a live cube of its surroundings); otherwise they
+ * reflect the scene's sky.
+ */
+export function buildCarModel(
+  car: Car,
+  livery: Livery,
+  castShadows: boolean,
+  wingBroken = false,
+  reflections: THREE.Texture | null = null,
+): CarVisual {
   const root = new THREE.Group();
   root.name = 'car';
   const body = new THREE.Group();
   root.add(body);
 
+  // Metallic paint under a deep, smooth clear coat: the coat mirrors the world and the sun, the metal flake gives the
+  // colour its sheen.
   const paint = new THREE.MeshPhysicalMaterial({
     color: livery.primary,
-    roughness: 0.32,
-    metalness: 0.25,
+    roughness: 0.22,
+    metalness: 0.3,
     clearcoat: 1,
-    clearcoatRoughness: 0.06,
+    clearcoatRoughness: 0.02,
+    // Racing-game paint mirrors more than a real car's does: that's the look.
+    envMapIntensity: 1.35,
   });
   const accent = new THREE.MeshPhysicalMaterial({
     color: livery.accent,
-    roughness: 0.3,
-    metalness: 0.2,
+    roughness: 0.22,
+    metalness: 0.3,
     clearcoat: 1,
-    clearcoatRoughness: 0.08,
+    clearcoatRoughness: 0.03,
+    envMapIntensity: 1.35,
   });
   const carbon = new THREE.MeshPhysicalMaterial({
     color: 0x16181b,
-    roughness: 0.38,
+    roughness: 0.35,
     metalness: 0.3,
-    clearcoat: 0.7,
-    clearcoatRoughness: 0.2,
+    clearcoat: 1,
+    clearcoatRoughness: 0.08,
+    envMapIntensity: 1.4,
   });
   applyCarbonWeave(carbon, carbonWeave());
   const black = new THREE.MeshStandardMaterial({ color: 0x050607, roughness: 0.5 });
@@ -535,6 +551,7 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean, wi
     if (o instanceof THREE.Mesh && o !== shadow) {
       o.castShadow = castShadows;
       o.receiveShadow = true;
+      if (reflections && o.material instanceof THREE.MeshStandardMaterial) o.material.envMap = reflections;
     }
   });
 
