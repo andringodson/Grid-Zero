@@ -319,6 +319,38 @@ export function garageTexture(teams: readonly { name: string; colour: number }[]
   return finish(c, anisotropy);
 }
 
+/**
+ * Foliage for the trees: a tile of overlapping leaves (or, for conifers, needle sprays) in varied light and shade over
+ * the darker depths of the canopy. Greyscale: each tree's own green comes from its instance colour. Leaves near an
+ * edge are drawn again across it, so the tile repeats without seams.
+ */
+export function foliageTexture(needles: boolean): THREE.CanvasTexture {
+  const size = 256;
+  const [c, ctx] = canvas(size);
+  const rand = seededRandom(needles ? 71 : 37);
+  // Shadowed depths of the canopy behind the leaves.
+  ctx.fillStyle = 'rgb(120, 120, 120)';
+  ctx.fillRect(0, 0, size, size);
+  const count = needles ? 1400 : 900;
+  for (let i = 0; i < count; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const shade = Math.round(165 + rand() * 90);
+    const angle = rand() * Math.PI * 2;
+    const rx = needles ? 7 + rand() * 6 : 4 + rand() * 4;
+    const ry = needles ? 1.1 : 2.2 + rand() * 2;
+    ctx.fillStyle = `rgb(${shade}, ${shade}, ${shade})`;
+    for (const ox of [-size, 0, size]) {
+      for (const oy of [-size, 0, size]) {
+        ctx.beginPath();
+        ctx.ellipse(x + ox, y + oy, rx, ry, angle, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+  return finish(c, 4);
+}
+
 /** Gravel trap: pale, uneven stones with darker gaps between them. */
 export function gravelTextures(size: number, anisotropy: number): SurfaceTextures {
   const rand = seededRandom(81);

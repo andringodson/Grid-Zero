@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { seededRandom } from '../math.ts';
 import type { Track } from '../track/Track.ts';
 import type { QualitySettings } from './quality.ts';
-import { boardTexture, crowdTexture } from './textures.ts';
+import { boardTexture, crowdTexture, foliageTexture } from './textures.ts';
 import { GROUND_Y } from './trackMesh.ts';
 
 /** Rotation about Y that points an object's local +x along a track heading. */
@@ -138,6 +138,25 @@ function roughen(geo: THREE.BufferGeometry, amount: number, seed: number): THREE
   return geo;
 }
 
+/**
+ * Soft shading for a canopy: normals point out from the crown's axis (and, for a conifer, tilt up the cone) instead
+ * of following each facet, so a tree shades like a mass of leaves lit from one side, not like a polyhedron.
+ */
+function foliageNormals(geo: THREE.BufferGeometry, axisY: number, cone: boolean): THREE.BufferGeometry {
+  const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+  const normals = new Float32Array(pos.count * 3);
+  const n = new THREE.Vector3();
+  for (let k = 0; k < pos.count; k++) {
+    n.set(pos.getX(k), cone ? 0.55 * Math.hypot(pos.getX(k), pos.getZ(k)) : pos.getY(k) - axisY, pos.getZ(k));
+    // On the axis (a cone's tip) there is no outward direction: point up rather than normalise zero into NaN.
+    if (n.lengthSq() < 1e-8) n.set(0, 1, 0);
+    n.normalize();
+    normals.set([n.x, n.y, n.z], k * 3);
+  }
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  return geo;
+}
+
 /** Trees are grouped into tiles this size, so whole tiles can be culled. */
 const TREE_TILE = 400;
 
@@ -161,12 +180,15 @@ function trees(track: Track, q: QualitySettings, groundAt: (x: number, z: number
   type Spot = { x: number; y: number; z: number; scale: number; kind: number };
   const spots: Spot[] = [];
   let attempts = 0;
-  while (spots.length < q.trees && attempts < q.trees * 6) {
+  while (spots.length < q.trees && attempts < q.trees * 12) {
     attempts++;
     const x = minX - margin + rand() * (maxX - minX + 2 * margin);
     const z = minZ - margin + rand() * (maxZ - minZ + 2 * margin);
     const p = track.project(x, z);
-    if (Math.abs(p.lateral) < track.barrierAt(p) + 14) continue;
+    const beyond = Math.abs(p.lateral) - track.barrierAt(p);
+    if (beyond < 14) continue;
+    // Woods line the circuit, where drivers see them; the open country beyond is sparser.
+    if (beyond > 250 && rand() > 0.2) continue;
     // Keep the main straight open for the stands and pit building.
     const nearStraight = p.s < 520 || p.s > track.length - 420;
     if (nearStraight && Math.abs(p.lateral) < 110) continue;
@@ -190,6 +212,7 @@ function trees(track: Track, q: QualitySettings, groundAt: (x: number, z: number
     0.22,
     7,
   );
+  foliageNormals(pineGeo, 0, true);
   // Broadleaf: a canopy of overlapping lobes rather than one ball.
   const broadGeo = roughen(
     mergeGeometries(
@@ -204,9 +227,18 @@ function trees(track: Track, q: QualitySettings, groundAt: (x: number, z: number
     0.28,
     11,
   );
+  foliageNormals(broadGeo, 7.4, false);
 
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3626, roughness: 0.95 });
-  const leafMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 });
+  // Leaf clusters in light and shade over the canopy. Solid rather than cut out: cut-out leaves thin to bare twigs in
+  // the distance, where the texture's mipmaps average the gaps away.
+  const foliage = (needles: boolean, repeat: number) => {
+    const map = foliageTexture(needles);
+    map.repeat.set(repeat, repeat);
+    return new THREE.MeshStandardMaterial({ map, roughness: 0.82 });
+  };
+  const pineLeaves = foliage(true, 5);
+  const broadLeaves = foliage(false, 4);
 
   // The forest is split into tiles, each its own instanced meshes with a bounding sphere, so tiles outside the
   // view (and outside the small shadow area around the car) are skipped instead of drawing every tree twice.
@@ -244,8 +276,8 @@ function trees(track: Track, q: QualitySettings, groundAt: (x: number, z: number
     instanced(trunkGeo, trunkMat, tile, null);
     const pines = tile.filter((s) => s.kind === 0);
     const broads = tile.filter((s) => s.kind === 1);
-    if (pines.length) instanced(pineGeo, leafMat, pines, 0.33);
-    if (broads.length) instanced(broadGeo, leafMat, broads, 0.25);
+    if (pines.length) instanced(pineGeo, pineLeaves, pines, 0.33);
+    if (broads.length) instanced(broadGeo, broadLeaves, broads, 0.25);
   }
   return group;
 }
