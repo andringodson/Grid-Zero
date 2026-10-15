@@ -9,7 +9,7 @@ import type { Input, InputFrame } from '../input/Input.ts';
 import { Car, type Assists } from '../physics/Car.ts';
 import { GZ26 } from '../physics/carSpec.ts';
 import { CameraRig } from '../render/cameraRig.ts';
-import { buildCarModel, type CarVisual } from '../render/carModel.ts';
+import { BROKEN_WING, buildCarModel, type CarVisual } from '../render/carModel.ts';
 import { Particles } from '../render/effects/particles.ts';
 import { Rain } from '../render/effects/rain.ts';
 import { SkidMarks } from '../render/effects/skidMarks.ts';
@@ -70,6 +70,7 @@ export class Game {
   private readonly env: Environment;
   private visual: CarVisual;
   private readonly opponentVisuals = new Map<string, CarVisual>();
+  private readonly opponentLiveries = new Map<string, Livery>();
   private ghost: GhostCar | null = null;
   private livery: Livery;
   private ghostLivery: Livery | null = null;
@@ -287,6 +288,7 @@ export class Game {
       this.scene.add(visual.root);
       visual.update(fc.car);
       this.opponentVisuals.set(o.id, visual);
+      this.opponentLiveries.set(o.id, o.team.livery);
     }
     this.toGrid(playerSlot);
   }
@@ -294,8 +296,29 @@ export class Game {
   clearOpponents(): void {
     for (const v of this.opponentVisuals.values()) this.disposeVisual(v);
     this.opponentVisuals.clear();
+    this.opponentLiveries.clear();
     this.field.removeAI();
     this.skids.prune(this.field.cars);
+  }
+
+  /**
+   * Rebuilds a car's model when its front wing breaks or is replaced. Once per change, so a broken wing costs no
+   * extra draw calls while it lasts.
+   */
+  private showWingDamage(): void {
+    if ((this.car.wingDamage > BROKEN_WING) !== !!this.visual.wingBroken) {
+      this.disposeVisual(this.visual);
+      this.visual = buildCarModel(this.car, this.livery, this.castShadows, !this.visual.wingBroken);
+      this.scene.add(this.visual.root);
+    }
+    for (const fc of this.field.cars) {
+      const v = this.opponentVisuals.get(fc.id);
+      if (!v || (fc.car.wingDamage > BROKEN_WING) === !!v.wingBroken) continue;
+      this.disposeVisual(v);
+      const fresh = buildCarModel(fc.car, this.opponentLiveries.get(fc.id)!, this.castShadows, !v.wingBroken);
+      this.scene.add(fresh.root);
+      this.opponentVisuals.set(fc.id, fresh);
+    }
   }
 
   /** Distance along the lap for any car in the field. */
@@ -386,6 +409,7 @@ export class Game {
     if (impact > 2) this.rig.bump(Math.min(1, impact / 25));
     this.onFrame?.(this, { dt, input, impact, kerb });
 
+    this.showWingDamage();
     // Game time, so brake glow and the DRS flap pause with the game.
     const visualDt = this.paused ? 0 : dt;
     this.visual.update(this.car, visualDt);

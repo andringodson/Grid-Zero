@@ -308,8 +308,9 @@ const menu = new Menu(document.body, settings, track.name, {
       return true;
     }
     game.car.assists = { ...settings.assists };
-    if (changed === 'compound') game.setTeam(liveryFor(teamOf(settings.teamId), 0, COMPOUNDS[settings.compound]));
     if (changed === 'weather') weather = new Weather(settings.weather);
+    // The car in the menu wears the tyres it would start on.
+    if (changed === 'compound' || changed === 'weather') game.car.setTyres(BLANKET_TEMP, 0, playerCompound());
     touch.showPaddles(!settings.assists.autoGears);
     audio.setVolume(settings.volume);
     return true;
@@ -458,6 +459,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden && mode === 'driving') setMode('paused');
 });
 
+game.car.setTyres(BLANKET_TEMP, 0, playerCompound());
 // Driving into the pits gets the tyres for the conditions.
 game.field.pitTyres = (fc) => tyresFor(weather.wetness, fc.car.compound, drySlick());
 

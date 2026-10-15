@@ -204,11 +204,16 @@ function applyCarbonWeave(material: THREE.MeshPhysicalMaterial, weave: THREE.Tex
 
 export interface CarVisual {
   root: THREE.Group;
+  /** Built with a broken front wing. */
+  wingBroken?: boolean;
   /** Places the model on the car; `dt` (game seconds since the last update) drives brake heat and the DRS flap. */
   update(car: Car, dt?: number): void;
 }
 
-export function buildCarModel(car: Car, livery: Livery, castShadows: boolean): CarVisual {
+/** Front wing damage beyond this shows on the model: the wing bent down on one side, its endplate gone. */
+export const BROKEN_WING = 0.25;
+
+export function buildCarModel(car: Car, livery: Livery, castShadows: boolean, wingBroken = false): CarVisual {
   const root = new THREE.Group();
   root.name = 'car';
   const body = new THREE.Group();
@@ -341,11 +346,13 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean): C
 
   // Front wing: three cambered elements stepping up and back, shaped endplates, pylons to the nose.
   const fwX = a + 0.95;
-  body.add(new THREE.Mesh(wing(0.34, 1.92, 0.07, 0.06, -0.04).translate(fwX + 0.19, 0.09, 0), accent));
-  body.add(new THREE.Mesh(wing(0.22, 1.78, 0.08, 0.07, 0.25).translate(fwX - 0.05, 0.135, 0), carbon));
-  body.add(new THREE.Mesh(wing(0.18, 1.62, 0.08, 0.07, 0.45).translate(fwX - 0.21, 0.19, 0), accent));
+  // Broken: the elements bent down toward the right, about where the wing meets the nose, nearly touching the ground.
+  const bend = (g: THREE.BufferGeometry) => (wingBroken ? g.translate(0, -0.15, 0).rotateX(0.07).translate(0, 0.15, 0) : g);
+  body.add(new THREE.Mesh(bend(wing(0.34, 1.92, 0.07, 0.06, -0.04).translate(fwX + 0.19, 0.09, 0)), accent));
+  body.add(new THREE.Mesh(bend(wing(0.22, 1.78, 0.08, 0.07, 0.25).translate(fwX - 0.05, 0.135, 0)), carbon));
+  body.add(new THREE.Mesh(bend(wing(0.18, 1.62, 0.08, 0.07, 0.45).translate(fwX - 0.21, 0.19, 0)), accent));
   for (const side of [-1, 1]) {
-    body.add(
+    if (!(wingBroken && side > 0)) body.add(
       new THREE.Mesh(
         endplate([
           [0.2, 0.04],
@@ -534,6 +541,7 @@ export function buildCarModel(car: Car, livery: Livery, castShadows: boolean): C
   let shownCompound: Car['compound'] | null = null;
   return {
     root,
+    wingBroken,
     update(c: Car, dt = 0) {
       // The sidewall band shows the compound fitted, which changes at a pit stop.
       if (c.compound !== shownCompound) {
