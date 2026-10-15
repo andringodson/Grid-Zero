@@ -2,6 +2,8 @@
 
 A realistic open-wheel racing game that runs in the browser on Windows, macOS, Android and iOS. You can install it to your home screen and play it offline.
 
+**Play it: [andringodson.github.io/Grid-Zero](https://andringodson.github.io/Grid-Zero/)**. On a phone, use "Add to Home Screen" (iOS Safari) or "Install app" (Android Chrome) to play full screen and offline.
+
 Everything is generated in code: the circuit, the cars, the textures and the engine sound. The whole game is about 200 KB to download, and it has no asset licences.
 
 ## Modes

@@ -18,3 +18,26 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # The built site, for the deploy job; only pushes to main are published.
+      - if: github.event_name == 'push'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  # Publishes main to GitHub Pages once it has type-checked, passed the tests and built.
+  deploy:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
