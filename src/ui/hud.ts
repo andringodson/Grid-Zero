@@ -57,6 +57,8 @@ export class Hud {
   private readonly mapBase: HTMLCanvasElement;
   private readonly mapTransform: (x: number, z: number) => [number, number];
   private toastTimer = 0;
+  /** Messages waiting for the current one to finish. */
+  private readonly toastQueue: [string, 'best' | 'bad' | 'info', number][] = [];
   private ledState = '';
   private readonly posBox: HTMLElement;
   private readonly pos: Text;
@@ -192,7 +194,9 @@ export class Hud {
     this.drs.className = `hud-drs ${state}`;
   }
 
+  /** A new session: race or not, and nothing left over from the last one. */
   setRaceMode(on: boolean, cars: number, laps: number): void {
+    this.toastQueue.length = 0;
     this.raceMode = on;
     this.totalLaps = laps;
     this.posBox.style.display = on ? '' : 'none';
@@ -237,6 +241,12 @@ export class Hud {
         return li;
       }),
     );
+  }
+
+  /** Shows a message once the current one has finished (straight away if none is showing). */
+  then(message: string, kind: 'best' | 'bad' | 'info' = 'info', seconds = 2.5): void {
+    if (this.toastTimer > 0) this.toastQueue.push([message, kind, seconds]);
+    else this.flash(message, kind, seconds);
   }
 
   flash(message: string, kind: 'best' | 'bad' | 'info' = 'info', seconds = 2.5): void {
@@ -311,7 +321,11 @@ export class Hud {
     // Toast.
     if (this.toastTimer > 0) {
       this.toastTimer -= dt;
-      if (this.toastTimer <= 0) this.toast.classList.remove('hud-toast-on');
+      if (this.toastTimer <= 0) {
+        this.toast.classList.remove('hud-toast-on');
+        const next = this.toastQueue.shift();
+        if (next) this.flash(...next);
+      }
     }
 
     // Minimap.

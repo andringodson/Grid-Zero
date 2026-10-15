@@ -99,7 +99,8 @@ export class Menu {
     panel.innerHTML = `
       <h1 class="menu-logo"><span>GRID</span> ZERO</h1>
       <p class="menu-sub">${this.trackName}</p>
-      <p class="menu-best">Your best lap <strong>${formatLapTime(this.bestLap)}</strong></p>`;
+      <p class="menu-best">Your best lap <strong>${formatLapTime(this.bestLap)}</strong>
+        <small>${this.bestLap === null ? 'Set one in Time Trial to qualify for races' : 'Your qualifying time: it sets your place on the grid'}</small></p>`;
     this.root.appendChild(panel);
 
     const teams = document.createElement('div');

@@ -58,6 +58,12 @@
   margin-left: 6px;
 }
 
+.menu-best small {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+}
+
 .menu-teams {
   display: grid;
   grid-template-columns: repeat(10, 1fr);

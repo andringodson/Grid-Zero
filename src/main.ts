@@ -5,7 +5,8 @@ import { CarAudio } from './audio/CarAudio.ts';
 import { OpponentAudio } from './audio/OpponentAudio.ts';
 import { Haptics } from './input/haptics.ts';
 import { Game, PLAYER_ID } from './game/Game.ts';
-import { LapTimer } from './game/LapTimer.ts';
+import { aiLapTime, gridSlots, idealLap } from './game/grid.ts';
+import { formatLapTime, LapTimer } from './game/LapTimer.ts';
 import { findDrsZones, inZone } from './game/drs.ts';
 import { Race, type RaceEntrant } from './game/Race.ts';
 import { DIFFICULTY_CONSISTENCY, DIFFICULTY_PACE, loadSettings, saveSettings, type Settings } from './game/settings.ts';
@@ -374,7 +375,7 @@ function startSession(next: SessionMode): void {
     return;
   }
 
-  // Quick race: rivals from the other teams first, then team-mates, on a shuffled grid with the player mid-pack.
+  // Quick race: rivals from the other teams first, then team-mates, on a grid set by qualifying pace.
   const mine = teamOf(settings.teamId);
   const pool: { team: Team; name: string; driver: 0 | 1 }[] = [
     ...TEAMS.filter((t) => t !== mine).map((t) => ({ team: t, name: t.drivers[0], driver: 0 as const })),
@@ -383,24 +384,24 @@ function startSession(next: SessionMode): void {
   const count = OPPONENTS[settings.quality];
   const rivals = pool.slice(0, count);
   const total = count + 1;
-  const playerSlot = Math.min(total - 1, Math.ceil(total / 2));
-  const slots = Array.from({ length: total }, (_, i) => i).filter((s) => s !== playerSlot);
-  for (let i = slots.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [slots[i], slots[j]] = [slots[j], slots[i]];
-  }
   const [lo, hi] = DIFFICULTY_PACE[settings.difficulty];
+  const skills = rivals.map(() => ({
+    pace: lo + Math.random() * (hi - lo),
+    laneOffset: 0,
+    consistency: DIFFICULTY_CONSISTENCY[settings.difficulty] + (Math.random() - 0.5) * 0.1,
+    seed: Math.floor(Math.random() * 1e9),
+  }));
+  // Qualifying: rivals' laps from their pace, give or take a few tenths on the day; the player's from their best
+  // Time Trial lap, or the back of the grid without one.
+  const best = timer.best?.time ?? Infinity;
+  const slots = gridSlots([best, ...skills.map((s) => aiLapTime(IDEAL_LAP, s.pace) + (Math.random() - 0.5) * 0.6)]);
+  const playerSlot = slots[0];
   const compounds = rivals.map(() => pickCompound());
   const opponents = rivals.map((r, i) => ({
     id: `ai-${i}`,
     team: liveryFor(r.team, r.driver, compounds[i]),
-    slot: slots[i],
-    skill: {
-      pace: lo + Math.random() * (hi - lo),
-      laneOffset: 0,
-      consistency: DIFFICULTY_CONSISTENCY[settings.difficulty] + (Math.random() - 0.5) * 0.1,
-      seed: Math.floor(Math.random() * 1e9),
-    },
+    slot: slots[i + 1],
+    skill: skills[i],
   }));
   game.setupOpponents(opponents, playerSlot);
 
@@ -422,7 +423,12 @@ function startSession(next: SessionMode): void {
   game.held = true;
   hud.setRaceMode(true, total, settings.raceLaps);
   setMode('driving');
-  if (wetsFitted) hud.flash('WET TRACK - FULL WETS FITTED', 'info', 3);
+  hud.flash(
+    best < Infinity ? `GRID P${playerSlot + 1} - QUALIFIED ${formatLapTime(best)}` : 'NO TIME TRIAL LAP - STARTING FROM THE BACK',
+    'info',
+    3,
+  );
+  if (wetsFitted) hud.then('WET TRACK - FULL WETS FITTED', 'info', 3);
 }
 
 /** Fresh tyres off the blankets, a fuel load for the session, and an undamaged car for everyone. */
@@ -458,6 +464,9 @@ function setMode(next: Mode): void {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && mode === 'driving') setMode('paused');
 });
+
+/** The racing line's ideal lap, the yardstick for rivals' qualifying times. */
+const IDEAL_LAP = idealLap(track, game.field.line);
 
 game.car.setTyres(BLANKET_TEMP, 0, playerCompound());
 // Driving into the pits gets the tyres for the conditions.
