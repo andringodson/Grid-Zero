@@ -79,5 +79,5 @@ export const HALDEN_RING: CircuitDefinition = {
   // Banked a little through the final hairpin and the Turn 4 sweeper (both right-handers: left edge higher).
   camber: [0, 0, 0, 0, 0, 0, 0, 0, 0, -0.03, -0.04, -0.03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -0.02, -0.05, -0.04, 0],
   // Along the main straight on the infield side, rejoining well before the braking zone for Turn 1.
-  pit: { side: 1, entry: -470, wallStart: -330, wallEnd: 150, exit: 290, firstBox: -236 },
+  pit: { side: 1, entry: -470, wallStart: -270, wallEnd: 60, exit: 290, firstBox: -236 },
 };

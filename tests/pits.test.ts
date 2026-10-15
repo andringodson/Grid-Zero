@@ -97,14 +97,14 @@ test('an AI car called in drives through the pits at the limit, stops in its box
   assert.ok(r.maxImpact < 2, `hit something at ${r.maxImpact.toFixed(1)} m/s`);
   assert.ok(Math.abs(fc.world.projection.lateral) < track.halfWidth, 'back on the track');
 
-  // The same run without stopping: a stop costs what it does in a real race, about 20 seconds.
+  // The same run without stopping: a stop costs what it does at a real circuit, 20-25 seconds.
   const clean = new Field(track, line);
   const other = clean.addAI('ai', GZ26, { pace: 0.95, laneOffset: 0 }, 0);
   place(other, pit.entry - 350, line.offset[0]);
   other.car.setTyres(90, 0.3, COMPOUNDS.medium);
   const base = drive(clean, other, end);
   const loss = r.t - base.t;
-  assert.ok(loss > 12 && loss < 32, `pit stop costs ${loss.toFixed(1)} s`);
+  assert.ok(loss > 18 && loss < 27, `pit stop costs ${loss.toFixed(1)} s`);
 });
 
 test('driving onto the pit road commits the player to a stop; control comes back at the end of the limit', () => {
