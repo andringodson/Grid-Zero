@@ -207,7 +207,8 @@ export class Hud {
     this.lamps.forEach((lamp, i) => lamp.classList.toggle('on', Math.floor(i / 2) < lit));
   }
 
-  updateRace(dt: number, race: Race, playerId: string): void {
+  /** `inPits` tells which cars are in the pit lane, shown as PIT in the tower as on TV. */
+  updateRace(dt: number, race: Race, playerId: string, inPits: (id: string) => boolean = () => false): void {
     if (!this.raceMode) return;
     const me = race.standing(playerId);
     this.pos.set(`P${race.position(playerId)}`);
@@ -222,7 +223,16 @@ export class Hud {
       ...rows.map((st, i) => {
         const li = document.createElement('li');
         li.className = `hud-tower-row${st.entrant.isPlayer ? ' me' : ''}`;
-        const gap = i === 0 ? (st.finished ? 'WIN' : 'LEADER') : st.finished && rows[0].finishTime !== null ? `+${(st.finishTime! - rows[0].finishTime!).toFixed(1)}` : `+${st.gap.toFixed(1)}`;
+        const gap =
+          !st.finished && inPits(st.entrant.id)
+            ? 'PIT'
+            : i === 0
+              ? st.finished
+                ? 'WIN'
+                : 'LEADER'
+              : st.finished && rows[0].finishTime !== null
+                ? `+${(st.finishTime! - rows[0].finishTime!).toFixed(1)}`
+                : `+${st.gap.toFixed(1)}`;
         li.innerHTML = `<span class="p">${i + 1}</span><span class="c" style="background:${st.entrant.colour}"></span><span class="n">${st.entrant.code}</span><span class="g">${race.phase === 'lights' ? '' : gap}</span>`;
         return li;
       }),

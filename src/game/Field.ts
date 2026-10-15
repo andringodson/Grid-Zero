@@ -18,6 +18,8 @@ export interface PitStop {
   timer: number;
   /** How long the stop takes, seconds. */
   stopTime: number;
+  /** The front wing was changed too. */
+  nose: boolean;
 }
 
 export interface FieldCar {
@@ -167,7 +169,8 @@ export class Field {
   }
 
   private startPit(fc: FieldCar, compound: TyreCompound): void {
-    fc.pit = { driver: new Driver(this.track, pitLine(this.track, this.line, fc.box, true), PIT_SKILL), phase: 'in', compound, timer: 0, stopTime: 0 };
+    const driver = new Driver(this.track, pitLine(this.track, this.line, fc.box, true), PIT_SKILL);
+    fc.pit = { driver, phase: 'in', compound, timer: 0, stopTime: 0, nose: false };
     fc.pitRequest = null;
   }
 
@@ -202,7 +205,8 @@ export class Field {
       const toBox = track.pitDistance(fc.box) - track.pitDistance(p.s);
       if (toBox < 2 && toBox > -3 && Math.abs(car.u) < 6) {
         stop.phase = 'service';
-        stop.stopTime = TYRE_CHANGE + Math.random() * 0.8 + (car.wingDamage > 0.1 ? NOSE_CHANGE : 0);
+        stop.nose = car.wingDamage > 0.1;
+        stop.stopTime = TYRE_CHANGE + Math.random() * 0.8 + (stop.nose ? NOSE_CHANGE : 0);
         stop.timer = stop.stopTime;
         return 'parked';
       }

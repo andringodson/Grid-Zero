@@ -171,7 +171,10 @@ function updatePits(): void {
   const phase = pit?.phase ?? null;
   if (phase !== lastPitPhase) {
     if (phase === 'in') hud.flash('PIT LANE - SPEED LIMITER ON', 'info', 3);
-    else if (phase === 'out' && pit) hud.flash(`${pit.stopTime.toFixed(1)} s STOP - ${pit.compound.name.toUpperCase()}S FITTED`, 'best', 3);
+    else if (phase === 'out' && pit) {
+      const work = `${pit.compound.name.toUpperCase()}S${pit.nose ? ' AND A NEW NOSE' : ''}`;
+      hud.flash(`${pit.stopTime.toFixed(1)} s STOP - ${work}`, 'best', 3);
+    }
     lastPitPhase = phase;
   }
   // The radio call, once, when the tyres fitted become the wrong ones for the track.
@@ -206,7 +209,7 @@ function runRace(dt: number): void {
     }
   }
   game.held = race.held;
-  hud.updateRace(dt, race, PLAYER_ID);
+  hud.updateRace(dt, race, PLAYER_ID, (id) => game.field.cars.some((fc) => fc.id === id && fc.pit !== null));
   if (resultsCountdown > 0) {
     resultsCountdown -= dt;
     if (resultsCountdown <= 0) {
