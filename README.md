@@ -4,7 +4,7 @@ A realistic open-wheel racing game that runs in the browser on Windows, macOS, A
 
 **Play it: [andringodson.github.io/Grid-Zero](https://andringodson.github.io/Grid-Zero/)**. On a phone, use "Add to Home Screen" (iOS Safari) or "Install app" (Android Chrome) to play full screen and offline.
 
-Everything is generated in code: the circuit, the cars, the textures and the engine sound. The whole game is about 200 KB to download, and it has no asset licences.
+The circuits, the cars and the engine sound are generated in code. The skies and the asphalt, gravel and grass are real photographs and scans, all CC0 (public domain) from Poly Haven and ambientCG: see [public/assets/CREDITS.md](public/assets/CREDITS.md). `python scripts/fetch-assets.py` downloads them again.
 
 ## Modes
 

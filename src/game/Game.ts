@@ -19,7 +19,7 @@ import { RoadReflection } from '../render/roadReflection.ts';
 import { createSpeedBlurPass } from '../render/speedBlur.ts';
 import { buildTrackside, type Trackside } from '../render/trackside.ts';
 import { GhostCar } from '../render/ghostCar.ts';
-import { createEnvironment, type Environment, type TimeOfDay } from '../render/environment.ts';
+import { createEnvironment, type Environment, type PhotoSkies, type TimeOfDay } from '../render/environment.ts';
 import type { QualitySettings } from '../render/quality.ts';
 import { buildScenery } from '../render/scenery.ts';
 import { GROUND_DROP, Terrain } from '../render/terrain.ts';
@@ -52,6 +52,8 @@ export interface GameOptions {
   assists: Assists;
   input: Input;
   timeOfDay?: TimeOfDay;
+  /** Photographed skies for the session; the procedural sky stands in without them. */
+  photoSkies?: PhotoSkies | null;
   /** Called after physics each frame, before rendering; for timing, HUD and audio. */
   onFrame?: (game: Game, info: FrameInfo) => void;
 }
@@ -128,7 +130,7 @@ export class Game {
     o.container.appendChild(this.renderer.domElement);
 
     this.rig = new CameraRig(o.container.clientWidth / o.container.clientHeight);
-    this.env = createEnvironment(this.renderer, this.scene, q, o.timeOfDay);
+    this.env = createEnvironment(this.renderer, this.scene, q, o.timeOfDay, o.photoSkies);
     this.renderer.toneMappingExposure = this.env.exposure;
 
     this.car = new Car(GZ26, o.assists);

@@ -14,6 +14,7 @@ import {
   wireMeshTexture,
 } from './textures.ts';
 import { GROUND_Y, ribbon } from './trackMesh.ts';
+import { photoTexture } from './photoTextures.ts';
 import { markWettable } from './wet.ts';
 
 /** The gravel and run-off reach to just short of the tyre wall in front of the barrier. */
@@ -64,9 +65,12 @@ const runoffStart = (track: Track, kerb: Uint8Array, i: number) =>
 
 function runoff(track: Track, q: QualitySettings): THREE.Group {
   const group = new THREE.Group();
-  const gravel = gravelTextures(Math.min(512, q.textureSize), q.anisotropy);
-  // The ribbon's u spans the run-off once; repeat it so stones stay roughly square across 15-30 m.
-  for (const t of [gravel.map, gravel.normalMap]) t.repeat.set(4, 1);
+  // Photographed gravel: the ribbon's u spans the run-off once and v runs 6 m, so this gives tiles of about 3 m.
+  const generated = gravelTextures(Math.min(512, q.textureSize), q.anisotropy);
+  const gravel = {
+    map: photoTexture(q, 'gravel_color', generated.map, true, [8, 2]),
+    normalMap: photoTexture(q, 'gravel_normal', generated.normalMap, false, [8, 2]),
+  };
   const gravelMat = new THREE.MeshStandardMaterial({
     map: gravel.map,
     normalMap: gravel.normalMap,
