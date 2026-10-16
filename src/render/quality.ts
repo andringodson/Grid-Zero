@@ -15,6 +15,8 @@ export interface QualitySettings {
   reflectionSize: number;
   /** Trees and stands in the reflections too: the probe's biggest cost, and the least noticed. */
   reflectScenery: boolean;
+  /** Samples along each pixel's ray toward the sun for light shafts; 0 for none. */
+  sunShafts: number;
 }
 
 export const QUALITY: Record<QualityTier, QualitySettings> = {
@@ -31,6 +33,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     drawDistance: 1600,
     reflectionSize: 0,
     reflectScenery: false,
+    sunShafts: 0,
   },
   medium: {
     tier: 'medium',
@@ -45,6 +48,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     drawDistance: 2400,
     reflectionSize: 64,
     reflectScenery: false,
+    sunShafts: 0,
   },
   high: {
     tier: 'high',
@@ -59,6 +63,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     drawDistance: 3200,
     reflectionSize: 128,
     reflectScenery: true,
+    sunShafts: 20,
   },
   ultra: {
     tier: 'ultra',
@@ -73,6 +78,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     drawDistance: 4000,
     reflectionSize: 256,
     reflectScenery: true,
+    sunShafts: 28,
   },
 };
 

@@ -187,7 +187,7 @@ export function buildTrackMeshes(track: Track, q: QualitySettings, line?: Racing
     map: asphalt.map,
     roughnessMap: asphalt.roughnessMap,
     normalMap: asphalt.normalMap,
-    normalScale: new THREE.Vector2(0.6, 0.6),
+    normalScale: new THREE.Vector2(0.4, 0.4),
     // Polished by tyres: a sheen toward the sun, not a matte grey.
     roughness: 0.82,
     metalness: 0,

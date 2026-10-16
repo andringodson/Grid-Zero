@@ -178,7 +178,7 @@ export class Game {
       this.speedBlur = createSpeedBlurPass();
       this.composer.addPass(this.speedBlur);
       this.composer.addPass(new OutputPass());
-      this.grade = createGradePass();
+      this.grade = createGradePass(q.sunShafts);
       this.composer.addPass(this.grade);
       // Size the chain in CSS pixels times the pixel ratio, so later resizes and resolution changes keep it sharp.
       this.composer.setPixelRatio(pr);
