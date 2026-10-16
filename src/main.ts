@@ -280,7 +280,7 @@ function opponentDots(): { x: number; z: number; colour: string }[] {
 
 const entrantColour = new Map<string, string>();
 
-const menu = new Menu(document.body, settings, track.name, {
+const menu = new Menu(document.body, settings, { name: track.name, length: track.length }, {
   onDrive(next) {
     void audio.resume();
     // Touch steering starts as drag; tilt needs motion permission, which iOS only grants from a tap like this one.

@@ -1,14 +1,47 @@
+/* Titillium Web (SIL Open Font License, public/fonts/OFL.txt), bundled so it works offline. */
+@font-face {
+  font-family: 'Titillium Web';
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/titillium-web-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Titillium Web';
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/titillium-web-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Titillium Web';
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/titillium-web-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Titillium Web';
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+  src: url('/fonts/titillium-web-700-italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Titillium Web';
+  font-weight: 900;
+  font-display: swap;
+  src: url('/fonts/titillium-web-900.woff2') format('woff2');
+}
+
 :root {
   --bg: #0b0d10;
   --fg: #f2f4f7;
   --muted: #9aa3ad;
-  --accent: #ff2d3d;
+  --accent: #e10600;
   --panel: rgba(10, 12, 16, 0.72);
   --line: rgba(255, 255, 255, 0.14);
   --good: #3ddc84;
   --best: #b46cff;
   --bad: #ffcc33;
-  --font: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --font: 'Titillium Web', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
   --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, monospace;
 }
 
