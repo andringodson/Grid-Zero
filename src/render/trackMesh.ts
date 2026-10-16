@@ -5,6 +5,7 @@ import { seededRandom } from '../math.ts';
 import type { Track } from '../track/Track.ts';
 import type { QualitySettings } from './quality.ts';
 import { asphaltTextures, barrierTexture, chequerTexture, kerbTexture } from './textures.ts';
+import { addRoadReflection } from './roadReflection.ts';
 import { markWettable } from './wet.ts';
 
 /** Ground sits slightly below the asphalt so the two never z-fight at a distance. */
@@ -187,7 +188,7 @@ export function buildTrackMeshes(track: Track, q: QualitySettings, line?: Racing
     map: asphalt.map,
     roughnessMap: asphalt.roughnessMap,
     normalMap: asphalt.normalMap,
-    normalScale: new THREE.Vector2(0.6, 0.6),
+    normalScale: new THREE.Vector2(0.4, 0.4),
     // Polished by tyres: a sheen toward the sun, not a matte grey.
     roughness: 0.82,
     metalness: 0,
@@ -251,6 +252,7 @@ export function buildTrackMeshes(track: Track, q: QualitySettings, line?: Racing
   // Barriers: 1.1 m concrete walls with a top cap, facing the track.
   const wallMat = new THREE.MeshStandardMaterial({ map: barrierTexture(q.anisotropy), roughness: 0.6, side: THREE.DoubleSide });
   markWettable(1, asphaltMat, lineMat, kerbMat);
+  if (q.roadReflection > 0) addRoadReflection(asphaltMat);
   markWettable(0.4, wallMat);
   const capMat = new THREE.MeshStandardMaterial({ color: 0x8c8e90, roughness: 0.9 });
   for (const side of [-1, 1]) {
@@ -343,6 +345,7 @@ function pitLane(
     roughness: 1,
   });
   markWettable(1, roadMat);
+  if (q.roadReflection > 0) addRoadReflection(roadMat);
   const road = new THREE.Mesh(
     ribbon(track, {
       from: (i) => side * edgeOf(track, i, side),

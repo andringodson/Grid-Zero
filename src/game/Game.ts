@@ -15,6 +15,7 @@ import { Rain } from '../render/effects/rain.ts';
 import { SkidMarks } from '../render/effects/skidMarks.ts';
 import { createGradePass } from '../render/grade.ts';
 import { ReflectionProbe } from '../render/reflections.ts';
+import { RoadReflection } from '../render/roadReflection.ts';
 import { createSpeedBlurPass } from '../render/speedBlur.ts';
 import { buildTrackside, type Trackside } from '../render/trackside.ts';
 import { GhostCar } from '../render/ghostCar.ts';
@@ -84,6 +85,9 @@ export class Game {
   /** Live reflections of the player's surroundings, for every car's paint (high and ultra). */
   private readonly probe: ReflectionProbe | null;
   private readonly probePosition = new THREE.Vector3();
+  /** The road as a mirror under the cars (high and ultra). */
+  private readonly roadReflection: RoadReflection | null;
+  private shownWetnessForRoad = 0;
   private readonly skids: SkidMarks;
   private readonly trackside: Trackside;
   readonly terrain: Terrain;
@@ -133,12 +137,15 @@ export class Game {
     this.world = new World(o.track, this.car);
     this.field = new Field(o.track, computeRacingLine(o.track, GZ26));
     // The racing line tells the track where to lay rubber down.
-    this.scene.add(buildTrackMeshes(o.track, q, this.field.line));
+    const trackMeshes = buildTrackMeshes(o.track, q, this.field.line);
+    this.scene.add(trackMeshes);
     // The land: the heightfield mesh, and level land beyond it to the horizon.
     this.terrain = new Terrain(o.track, q);
     this.scene.add(this.terrain.mesh);
-    this.scene.add(this.terrain.buildFarPlane());
-    this.scene.add(this.terrain.buildRidge());
+    const farLand = this.terrain.buildFarPlane();
+    this.scene.add(farLand);
+    const ridge = this.terrain.buildRidge();
+    this.scene.add(ridge);
     const scenery = buildScenery(o.track, q, (x, z) => this.terrain.heightAt(x, z));
     this.scene.add(scenery);
     this.trackside = buildTrackside(o.track, q);
@@ -162,6 +169,9 @@ export class Game {
     // The probe sits inside the player's car: hide it, and the smoke and rain that don't belong in a reflection.
     this.probe?.hidden.push(this.particles.mesh, this.rain.mesh);
     if (!q.reflectScenery) this.probe?.hidden.push(scenery);
+    this.roadReflection = q.roadReflection > 0 ? new RoadReflection(q.roadReflection) : null;
+    this.roadReflection?.hidden.push(trackMeshes, this.terrain.mesh, farLand, ridge, scenery, this.particles.mesh, this.rain.mesh, this.skids.mesh);
+    this.roadReflection?.setSize(o.container.clientWidth, o.container.clientHeight);
 
     if (q.bloom) {
       // A multisampled target keeps anti-aliasing on the post-processing path; HDR so bloom sees real highlights.
@@ -178,7 +188,7 @@ export class Game {
       this.speedBlur = createSpeedBlurPass();
       this.composer.addPass(this.speedBlur);
       this.composer.addPass(new OutputPass());
-      this.grade = createGradePass();
+      this.grade = createGradePass(q.sunShafts);
       this.composer.addPass(this.grade);
       // Size the chain in CSS pixels times the pixel ratio, so later resizes and resolution changes keep it sharp.
       this.composer.setPixelRatio(pr);
@@ -272,6 +282,7 @@ export class Game {
       this.shownWetness = wetness;
     }
     this.particles.wetness = wetness;
+    this.shownWetnessForRoad = wetness;
   }
 
   /** Lights `count` columns of the start gantry over the grid (0 turns them all off). */
@@ -360,6 +371,7 @@ export class Game {
     if (w === 0 || h === 0) return;
     this.renderer.setSize(w, h);
     this.composer?.setSize(w, h);
+    this.roadReflection?.setSize(w * this.renderScale, h * this.renderScale);
     this.rig.camera.aspect = w / h;
     this.rig.camera.updateProjectionMatrix();
   }
@@ -457,6 +469,14 @@ export class Game {
       this.probe.hidden.pop();
     }
     this.grade?.update(this.rig.camera, this.env.sunDirection);
+    // A faint gloss in the dry; in the wet the cars and the sky stand in the water.
+    this.roadReflection?.update(
+      this.renderer,
+      this.scene,
+      this.rig.camera,
+      this.probePosition.set(this.car.x, this.car.y, this.car.z),
+      0.1 + 0.9 * this.shownWetnessForRoad,
+    );
     if (this.composer) this.composer.render();
     else this.renderer.render(this.scene, this.rig.camera);
   }

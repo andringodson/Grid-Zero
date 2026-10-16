@@ -111,17 +111,27 @@ function twoTone(material: THREE.MeshPhysicalMaterial, cut: number, lower: numbe
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('void main() {', 'varying float vBodyY;\nvoid main() {')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vBodyY = position.y;');
+      .replace('void main() {', 'varying vec3 vBodyPos;\nvoid main() {')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vBodyPos = position;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('void main() {', 'uniform float cutY;\nuniform vec3 lowerColor;\nuniform vec3 stripeColor;\nvarying float vBodyY;\nvoid main() {')
+      .replace('void main() {', 'uniform float cutY;\nuniform vec3 lowerColor;\nuniform vec3 stripeColor;\nvarying vec3 vBodyPos;\nvoid main() {')
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
-  float aa = fwidth(vBodyY) * 1.2;
-  diffuseColor.rgb = mix(lowerColor, diffuseColor.rgb, smoothstep(cutY - aa, cutY + aa, vBodyY));
-  float stripe = 1.0 - smoothstep(0.006 - aa, 0.006 + aa, abs(vBodyY - cutY - 0.016));
+  float aa = fwidth(vBodyPos.y) * 1.2;
+  diffuseColor.rgb = mix(lowerColor, diffuseColor.rgb, smoothstep(cutY - aa, cutY + aa, vBodyPos.y));
+  float stripe = 1.0 - smoothstep(0.006 - aa, 0.006 + aa, abs(vBodyPos.y - cutY - 0.016));
   diffuseColor.rgb = mix(diffuseColor.rgb, stripeColor, stripe);`,
+      )
+      // Metal flake under the clear coat: each 4 mm cell tilts the base layer a little its own way, so the paint
+      // sparkles where flakes catch the sun. Faded out once a cell is smaller than a pixel, so it never shimmers.
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+  vec3 flakeCell = floor(vBodyPos * 260.0);
+  vec3 flake = fract(sin(vec3(dot(flakeCell, vec3(127.1, 311.7, 74.7)), dot(flakeCell, vec3(269.5, 183.3, 246.1)), dot(flakeCell, vec3(113.5, 271.9, 124.6)))) * 43758.5453) * 2.0 - 1.0;
+  float flakeFade = 1.0 - smoothstep(0.4, 1.0, length(fwidth(vBodyPos * 260.0)));
+  normal = normalize(normal + flake * 0.16 * flakeFade);`,
       );
   };
   material.customProgramCacheKey = () => 'two-tone';

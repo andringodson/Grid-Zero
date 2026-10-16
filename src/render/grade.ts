@@ -7,8 +7,11 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
  * through the centre of the frame. Whether the sun is showing is read from the image itself, at the sun's position,
  * so the flare dies when a building or a hill passes in front of it.
  */
-export function createGradePass(): ShaderPass & { update(camera: THREE.PerspectiveCamera, sunDirection: THREE.Vector3): void } {
+export function createGradePass(
+  shaftSamples = 0,
+): ShaderPass & { update(camera: THREE.PerspectiveCamera, sunDirection: THREE.Vector3): void } {
   const pass = new ShaderPass({
+    defines: shaftSamples > 0 ? { SHAFTS: shaftSamples } : {},
     uniforms: {
       tDiffuse: { value: null },
       sunPos: { value: new THREE.Vector2() },
@@ -44,6 +47,24 @@ export function createGradePass(): ShaderPass & { update(camera: THREE.Perspecti
         return v / 5.0;
       }
 
+      #ifdef SHAFTS
+      // Light shafts: march from this pixel toward the sun, gathering the bright sky seen along the way. Where trees,
+      // stands or cloud edges block part of it, the light falls in streaks.
+      float shafts() {
+        vec2 stepUv = (sunPos - vUv) / float(SHAFTS) * 0.9;
+        vec2 p = vUv;
+        float light = 0.0;
+        float weight = 1.0;
+        for (int i = 0; i < SHAFTS; i++) {
+          p += stepUv;
+          vec3 s = texture2D(tDiffuse, p).rgb;
+          light += smoothstep(0.8, 0.97, min(s.r, min(s.g, s.b))) * weight;
+          weight *= 0.95;
+        }
+        return light / float(SHAFTS);
+      }
+      #endif
+
       float ghost(vec2 centre, float size) {
         return smoothstep(size, size * 0.55, length((vUv - centre) * vec2(aspect, 1.0)));
       }
@@ -57,6 +78,11 @@ export function createGradePass(): ShaderPass & { update(camera: THREE.Perspecti
         c += vec3(-0.008, 0.0, 0.016) * (1.0 - smoothstep(0.0, 0.35, l));
 
         if (sunOn > 0.0) {
+          #ifdef SHAFTS
+          // Strongest round the sun, and there even when the disc itself is hidden behind a tree.
+          float toSun = length((vUv - sunPos) * vec2(aspect, 1.0));
+          c += vec3(1.0, 0.86, 0.66) * shafts() * exp(-toSun * 1.6) * 0.55 * sunOn;
+          #endif
           float vis = sunVisible() * sunOn;
           if (vis > 0.0) {
             vec2 d = (vUv - sunPos) * vec2(aspect, 1.0);
