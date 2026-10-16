@@ -17,6 +17,8 @@ export interface QualitySettings {
   reflectScenery: boolean;
   /** Samples along each pixel's ray toward the sun for light shafts; 0 for none. */
   sunShafts: number;
+  /** Resolution of the road's mirror image as a fraction of the screen's; 0 for none. */
+  roadReflection: number;
 }
 
 export const QUALITY: Record<QualityTier, QualitySettings> = {
@@ -34,6 +36,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     reflectionSize: 0,
     reflectScenery: false,
     sunShafts: 0,
+    roadReflection: 0,
   },
   medium: {
     tier: 'medium',
@@ -49,6 +52,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     reflectionSize: 64,
     reflectScenery: false,
     sunShafts: 0,
+    roadReflection: 0,
   },
   high: {
     tier: 'high',
@@ -64,6 +68,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     reflectionSize: 128,
     reflectScenery: true,
     sunShafts: 20,
+    roadReflection: 0.5,
   },
   ultra: {
     tier: 'ultra',
@@ -79,6 +84,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     reflectionSize: 256,
     reflectScenery: true,
     sunShafts: 28,
+    roadReflection: 0.5,
   },
 };
 
