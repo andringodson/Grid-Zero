@@ -78,6 +78,7 @@ const game = new Game({
   quality: QUALITY[settings.quality],
   assists: settings.assists,
   input,
+  timeOfDay: settings.timeOfDay,
   onFrame(g, info) {
     if (mode === 'driving') updateWeather(info.dt);
     g.field.wetness = weather.wetness;
@@ -305,8 +306,8 @@ const menu = new Menu(document.body, settings, track.name, {
     }
     settings = next;
     saveSettings(settings);
-    // The circuit and the graphics tier are built into the scene: rebuild it.
-    if (changed === 'quality' || changed === 'trackId') {
+    // The circuit, the graphics tier and the light are built into the scene: rebuild it.
+    if (changed === 'quality' || changed === 'trackId' || changed === 'timeOfDay') {
       location.reload();
       return true;
     }

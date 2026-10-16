@@ -5,6 +5,7 @@ import { detectQualityTier, type QualityTier } from '../render/quality.ts';
 import type { TouchSteering } from '../ui/touch.ts';
 import { loadSetting, saveSetting } from './storage.ts';
 import { TEAMS } from './teams.ts';
+import type { TimeOfDay } from '../render/environment.ts';
 import type { WeatherMode } from './weather.ts';
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
@@ -21,6 +22,7 @@ export interface Settings {
   raceLaps: number;
   compound: TyreCompound['id'];
   weather: WeatherMode;
+  timeOfDay: TimeOfDay;
 }
 
 /** AI pace range per difficulty, as a fraction of the racing line's limit. Hard is close to a clean flying lap. */
@@ -54,6 +56,7 @@ export function loadSettings(): Settings {
     raceLaps: (RACE_LAPS as readonly number[]).includes(saved.raceLaps ?? 0) ? saved.raceLaps! : 3,
     compound: saved.compound && saved.compound in COMPOUNDS ? saved.compound : 'medium',
     weather: saved.weather === 'wet' || saved.weather === 'changing' ? saved.weather : 'dry',
+    timeOfDay: saved.timeOfDay === 'midday' || saved.timeOfDay === 'sunset' ? saved.timeOfDay : 'afternoon',
   };
 }
 

@@ -6,6 +6,7 @@ import type { WeatherMode } from '../game/weather.ts';
 import type { Assists } from '../physics/Car.ts';
 import { COMPOUNDS } from '../physics/tyre.ts';
 import { CIRCUITS } from '../track/circuits.ts';
+import type { TimeOfDay } from '../render/environment.ts';
 import type { QualityTier } from '../render/quality.ts';
 import type { TouchSteering } from './touch.ts';
 
@@ -213,6 +214,16 @@ export class Menu {
       b.setAttribute('aria-pressed', String(this.settings.raceLaps === n));
     }
     race.appendChild(laps);
+
+    // Time of day.
+    const timeSection = this.section(panel, 'Time of day', 'Sunset brings a low golden sun and long shadows. Changing it reloads the game.');
+    const times = document.createElement('div');
+    times.className = 'menu-seg';
+    for (const [t, label] of [['midday', 'MIDDAY'], ['afternoon', 'AFTERNOON'], ['sunset', 'SUNSET']] as [TimeOfDay, string][]) {
+      const b = this.button(times, label, () => void apply({ ...this.settings, timeOfDay: t }, 'timeOfDay'), 'menu-seg-btn');
+      b.setAttribute('aria-pressed', String(this.settings.timeOfDay === t));
+    }
+    timeSection.appendChild(times);
 
     // Weather.
     const weather = this.section(panel, 'Weather', 'Changing starts dry and brings rain part-way through: time to think about tyres.');

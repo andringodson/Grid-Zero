@@ -16,17 +16,53 @@ export interface Environment {
    * haze in closer and greyer.
    */
   setWeather(cloud: number, rain: number): void;
+  /** Tone-mapping exposure that suits this time of day. */
+  exposure: number;
   dispose(): void;
 }
 
 const RAIN_HAZE = new THREE.Color(0x868d95);
-const FILL_SKY = new THREE.Color(0xcfe3ff);
 const RAIN_FILL = new THREE.Color(0xc4c9cf);
 
-/** Mid-afternoon sun: high enough for crisp shadows, low enough to model the car's shape. */
-const SUN_ELEVATION = 38;
-const SUN_AZIMUTH = 215;
-const HAZE = new THREE.Color(0xa9bfd6);
+export type TimeOfDay = 'midday' | 'afternoon' | 'sunset';
+
+/** The light of one time of day: where the sun is and its colour, the sky's scattering, the haze and the fill. */
+interface Lighting {
+  elevation: number;
+  azimuth: number;
+  sun: number;
+  sunIntensity: number;
+  turbidity: number;
+  rayleigh: number;
+  mie: number;
+  haze: number;
+  fillSky: number;
+  fillGround: number;
+  fill: number;
+  exposure: number;
+  clouds: { sun: [number, number, number]; shadow: [number, number, number]; haze: [number, number, number] };
+}
+
+export const TIMES_OF_DAY: Record<TimeOfDay, Lighting> = {
+  // High summer sun: short, crisp shadows and a deep blue sky.
+  midday: {
+    elevation: 60, azimuth: 200, sun: 0xfff7ee, sunIntensity: 4.5, turbidity: 1.4, rayleigh: 1.0, mie: 0.002,
+    haze: 0xb4c9df, fillSky: 0xd4e7ff, fillGround: 0x4a5a32, fill: 0.38, exposure: 0.72,
+    clouds: { sun: [1.3, 1.27, 1.22], shadow: [0.62, 0.68, 0.8], haze: [0.84, 0.89, 0.96] },
+  },
+  // Mid-afternoon: high enough for crisp shadows, low enough to model the cars' shapes.
+  afternoon: {
+    elevation: 38, azimuth: 215, sun: 0xfff1e0, sunIntensity: 4.2, turbidity: 1.6, rayleigh: 1.2, mie: 0.002,
+    haze: 0xa9bfd6, fillSky: 0xcfe3ff, fillGround: 0x4a5a32, fill: 0.35, exposure: 0.75,
+    clouds: { sun: [1.28, 1.24, 1.17], shadow: [0.6, 0.66, 0.77], haze: [0.82, 0.87, 0.94] },
+  },
+  // Golden hour: a low orange sun, long shadows, a warm sky, clouds lit pink from below.
+  sunset: {
+    elevation: 8, azimuth: 250, sun: 0xffb06a, sunIntensity: 3.8, turbidity: 3.2, rayleigh: 2.6, mie: 0.006,
+    haze: 0xd8b49a, fillSky: 0xffcfa8, fillGround: 0x3d3326, fill: 0.32, exposure: 0.86,
+    clouds: { sun: [1.55, 0.98, 0.66], shadow: [0.46, 0.42, 0.56], haze: [0.96, 0.78, 0.66] },
+  },
+};
 
 /**
  * The sky model draws the sun's disc at a brightness near the top of a half-float render target (about 65,000).
@@ -46,11 +82,19 @@ function clampSky(sky: Sky): Sky {
   return sky;
 }
 
-export function createEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Scene, q: QualitySettings): Environment {
+export function createEnvironment(
+  renderer: THREE.WebGLRenderer,
+  scene: THREE.Scene,
+  q: QualitySettings,
+  time: TimeOfDay = 'afternoon',
+): Environment {
+  const light = TIMES_OF_DAY[time];
+  const HAZE = new THREE.Color(light.haze);
+  const FILL_SKY = new THREE.Color(light.fillSky);
   const sunDirection = new THREE.Vector3().setFromSphericalCoords(
     1,
-    THREE.MathUtils.degToRad(90 - SUN_ELEVATION),
-    THREE.MathUtils.degToRad(SUN_AZIMUTH),
+    THREE.MathUtils.degToRad(90 - light.elevation),
+    THREE.MathUtils.degToRad(light.azimuth),
   );
 
   // Physically based sky (Preetham model).
@@ -58,13 +102,18 @@ export function createEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Sc
   // Inside the camera's far plane (6000 m) at every corner of the sky box.
   sky.scale.setScalar(6000);
   const u = sky.material.uniforms;
-  u.turbidity.value = 1.6;
-  u.rayleigh.value = 1.2;
-  u.mieCoefficient.value = 0.002;
+  u.turbidity.value = light.turbidity;
+  u.rayleigh.value = light.rayleigh;
+  u.mieCoefficient.value = light.mie;
   u.mieDirectionalG.value = 0.8;
   u.sunPosition.value.copy(sunDirection);
   scene.add(sky);
-  const clouds = createCloudLayer(q, sunDirection);
+  const tint = (c: [number, number, number]) => new THREE.Color(c[0], c[1], c[2]);
+  const clouds = createCloudLayer(q, sunDirection, {
+    sun: tint(light.clouds.sun),
+    shadow: tint(light.clouds.shadow),
+    haze: tint(light.clouds.haze),
+  });
   scene.add(clouds.mesh);
 
   // Image-based lighting: render the sky once into a prefiltered environment map, so paint and
@@ -96,7 +145,7 @@ export function createEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Sc
 
   scene.fog = new THREE.Fog(HAZE, q.drawDistance * 0.25, q.drawDistance);
 
-  const sun = new THREE.DirectionalLight(0xfff1e0, 4.2);
+  const sun = new THREE.DirectionalLight(light.sun, light.sunIntensity);
   sun.position.copy(sunDirection).multiplyScalar(300);
   sun.castShadow = q.shadows;
   if (q.shadows) {
@@ -115,7 +164,7 @@ export function createEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Sc
   scene.add(sun);
   scene.add(sun.target);
 
-  const fill = new THREE.HemisphereLight(FILL_SKY, 0x4a5a32, 0.35);
+  const fill = new THREE.HemisphereLight(FILL_SKY, light.fillGround, light.fill);
   scene.add(fill);
 
   const texel = q.shadows ? 80 / q.shadowMapSize : 1;
@@ -138,12 +187,12 @@ export function createEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Sc
       const wet = Math.min(1, Math.max(0, rain));
       clouds.setOvercast(r);
       // Wet air scatters every colour alike: the blue goes out of the sky and it turns a bright grey.
-      u.turbidity.value = 1.6 + 8.4 * r;
-      u.rayleigh.value = 1.2 * (1 - 0.75 * r);
+      u.turbidity.value = light.turbidity + (10 - light.turbidity) * r;
+      u.rayleigh.value = light.rayleigh * (1 - 0.75 * r);
       u.overcast.value = Math.min(1, r * 1.3);
       // Under a rain deck the sun barely gets through and the light comes evenly from the whole sky.
-      sun.intensity = 4.2 * (1 - 0.85 * r);
-      fill.intensity = 0.35 * (1 + 0.5 * r);
+      sun.intensity = light.sunIntensity * (1 - 0.85 * r);
+      fill.intensity = light.fill * (1 + 0.5 * r);
       fill.color.copy(FILL_SKY).lerp(RAIN_FILL, r);
       scene.environmentIntensity = 0.55 * (1 - 0.3 * r);
       const fog = scene.fog as THREE.Fog;
@@ -152,6 +201,7 @@ export function createEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Sc
       fog.near = q.drawDistance * 0.25 * (1 - 0.7 * wet);
       fog.far = q.drawDistance * (1 - 0.15 * r - 0.45 * wet);
     },
+    exposure: light.exposure,
     dispose() {
       envTarget.dispose();
     },
