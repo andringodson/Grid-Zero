@@ -19,6 +19,8 @@ import { Input } from './input/Input.ts';
 import { COMPOUNDS, type TyreCompound } from './physics/tyre.ts';
 import { QUALITY, type QualityTier } from './render/quality.ts';
 import { CIRCUITS } from './track/circuits.ts';
+import type { PhotoSkies } from './render/environment.ts';
+import { loadPhotoSky } from './render/photoSky.ts';
 import { Track } from './track/Track.ts';
 import { Hud } from './ui/hud.ts';
 import { Menu, type SessionMode } from './ui/menu.ts';
@@ -71,6 +73,17 @@ const ghostScratch: GhostPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0 };
 let weather = new Weather(settings.weather);
 let rainAnnounced = false;
 
+/**
+ * The session's photographed sky, and the overcast one the weather may turn to. If they can't load (offline on a first
+ * visit), the procedural sky stands in.
+ */
+async function loadSkies(): Promise<PhotoSkies> {
+  const q = QUALITY[settings.quality];
+  const [sky, overcast] = await Promise.all([loadPhotoSky(settings.timeOfDay, q), loadPhotoSky('overcast', q)]);
+  return { sky, overcast };
+}
+const photoSkies = await loadSkies().catch(() => null);
+
 const game = new Game({
   container,
   track,
@@ -79,6 +92,7 @@ const game = new Game({
   assists: settings.assists,
   input,
   timeOfDay: settings.timeOfDay,
+  photoSkies,
   onFrame(g, info) {
     if (mode === 'driving') updateWeather(info.dt);
     g.field.wetness = weather.wetness;
@@ -266,7 +280,7 @@ function opponentDots(): { x: number; z: number; colour: string }[] {
 
 const entrantColour = new Map<string, string>();
 
-const menu = new Menu(document.body, settings, track.name, {
+const menu = new Menu(document.body, settings, { name: track.name, length: track.length }, {
   onDrive(next) {
     void audio.resume();
     // Touch steering starts as drag; tilt needs motion permission, which iOS only grants from a tap like this one.
@@ -477,6 +491,7 @@ game.field.pitTyres = (fc) => tyresFor(weather.wetness, fc.car.compound, drySlic
 
 setMode('menu');
 game.start();
+document.getElementById('loading')?.classList.add('done');
 
 // Offline play and home-screen install. Only in production builds, so development always loads fresh code.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {

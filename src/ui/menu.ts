@@ -40,12 +40,12 @@ export class Menu {
   private settings: Settings;
   private readonly cb: MenuCallbacks;
   private readonly touchDevice = matchMedia('(pointer: coarse)').matches;
-  private readonly trackName: string;
+  private readonly circuit: { name: string; length: number };
   private bestLap: number | null = null;
 
-  constructor(parent: HTMLElement, settings: Settings, trackName: string, cb: MenuCallbacks) {
+  constructor(parent: HTMLElement, settings: Settings, circuit: { name: string; length: number }, cb: MenuCallbacks) {
     this.settings = settings;
-    this.trackName = trackName;
+    this.circuit = circuit;
     this.cb = cb;
     this.root = document.createElement('div');
     this.root.className = 'menu';
@@ -95,64 +95,76 @@ export class Menu {
     return b;
   }
 
+  /**
+   * The title screen as broadcast graphics: the wordmark top left, the menu as a column of tiles, the teams as a
+   * timing tower on the right, and a lower third with the session: circuit, length, light, weather and best lap.
+   */
   private renderTitle(): void {
-    const panel = document.createElement('div');
-    panel.className = 'menu-title';
-    panel.innerHTML = `
-      <h1 class="menu-logo"><span>GRID</span> ZERO</h1>
-      <p class="menu-sub">${this.trackName}</p>
-      <p class="menu-best">Your best lap <strong>${formatLapTime(this.bestLap)}</strong>
-        <small>${this.bestLap === null ? 'Set one in Time Trial to qualify for races' : 'Your qualifying time: it sets your place on the grid'}</small></p>`;
-    this.root.appendChild(panel);
+    const head = document.createElement('header');
+    head.className = 'menu-mark';
+    head.innerHTML = '<span class="menu-mark-bar"></span><h1>GRID <b>ZERO</b></h1><p>OPEN-WHEEL RACING</p>';
+    this.root.appendChild(head);
 
-    const teams = document.createElement('div');
-    teams.className = 'menu-teams';
-    teams.setAttribute('role', 'radiogroup');
-    teams.setAttribute('aria-label', 'Team');
-    const name = document.createElement('p');
-    name.className = 'menu-team-name';
-    const describe = (t: Team) => `${t.name} · ${t.drivers[0]}`;
-    for (const t of TEAMS) {
-      const b = document.createElement('button');
-      b.className = 'menu-swatch';
-      b.setAttribute('role', 'radio');
-      b.setAttribute('aria-label', t.name);
-      b.setAttribute('aria-checked', String(t.id === this.settings.teamId));
-      b.style.background = `linear-gradient(135deg, ${hex(t.livery.primary)} 0 62%, ${hex(t.livery.accent)} 62% 100%)`;
-      b.addEventListener('click', () => {
-        this.settings = { ...this.settings, teamId: t.id };
-        teams.querySelectorAll('.menu-swatch').forEach((s) => s.setAttribute('aria-checked', String(s === b)));
-        name.textContent = describe(t);
-        this.cb.onTeam(t);
-      });
-      teams.appendChild(b);
-    }
-    name.textContent = describe(TEAMS.find((t) => t.id === this.settings.teamId) ?? TEAMS[0]);
-    panel.appendChild(teams);
-    panel.appendChild(name);
-
-    const actions = document.createElement('div');
-    actions.className = 'menu-actions';
-    this.button(actions, 'QUICK RACE', () => this.cb.onDrive('race'), 'menu-btn menu-btn-primary', true);
-    this.button(actions, 'TIME TRIAL', () => this.cb.onDrive('trial'), 'menu-btn menu-btn-primary');
-    this.button(actions, 'SETTINGS', () => {
+    const list = document.createElement('nav');
+    list.className = 'menu-list';
+    const item = (label: string, sub: string, onClick: () => void, primary = false) => {
+      const b = this.button(list, '', onClick, 'menu-item', primary);
+      b.innerHTML = `<span class="menu-item-label">${label}</span><span class="menu-item-sub">${sub}</span>`;
+    };
+    item('QUICK RACE', `${this.settings.raceLaps} LAPS · ${this.settings.difficulty.toUpperCase()} RIVALS`, () => this.cb.onDrive('race'), true);
+    item('TIME TRIAL', this.bestLap === null ? 'SET A LAP TO QUALIFY' : 'BEAT YOUR GHOST', () => this.cb.onDrive('trial'));
+    item('SETTINGS', 'CIRCUIT · WEATHER · TYRES · GRAPHICS', () => {
       this.settingsReturn = 'title';
       this.show('settings');
     });
-    panel.appendChild(actions);
+    this.root.appendChild(list);
+
+    // Teams as a timing tower: position box, colour bar, code, then the name; the chosen one highlighted white.
+    const tower = document.createElement('div');
+    tower.className = 'menu-tower';
+    tower.setAttribute('role', 'radiogroup');
+    tower.setAttribute('aria-label', 'Team');
+    tower.innerHTML = '<div class="menu-tower-head">CHOOSE YOUR TEAM</div>';
+    TEAMS.forEach((t, i) => {
+      const b = document.createElement('button');
+      b.className = 'menu-tower-row';
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(t.id === this.settings.teamId));
+      b.innerHTML = `<span class="p">${i + 1}</span><span class="c" style="background:${hex(t.livery.primary)}"></span><span class="n">${t.name.toUpperCase()}</span><span class="d">${t.drivers[0].split(' ').pop()!.toUpperCase()}</span>`;
+      b.addEventListener('click', () => {
+        this.settings = { ...this.settings, teamId: t.id };
+        tower.querySelectorAll('.menu-tower-row').forEach((r) => r.setAttribute('aria-checked', String(r === b)));
+        this.cb.onTeam(t);
+      });
+      tower.appendChild(b);
+    });
+    this.root.appendChild(tower);
+
+    const weather = { dry: 'DRY', wet: 'WET', changing: 'CHANGING' }[this.settings.weather];
+    const light = { midday: 'MIDDAY', afternoon: 'AFTERNOON', sunset: 'SUNSET' }[this.settings.timeOfDay];
+    const third = document.createElement('footer');
+    third.className = 'menu-third';
+    third.innerHTML = `
+      <span class="menu-third-tab"></span>
+      <span class="menu-third-name">${this.circuit.name.toUpperCase()}</span>
+      <span>${(this.circuit.length / 1000).toFixed(3)} KM</span>
+      <span>${light}</span>
+      <span>${weather}</span>
+      <span class="menu-third-best">BEST LAP <b>${formatLapTime(this.bestLap)}</b></span>`;
+    this.root.appendChild(third);
 
     const help = document.createElement('p');
     help.className = 'menu-help';
     help.textContent = this.touchDevice
-      ? 'Drag on the left to steer, pedals on the right.'
-      : 'W/S or arrows: throttle and brake · A/D: steer · C: camera · R: reset · Esc: pause · Gamepads work too';
-    panel.appendChild(help);
+      ? 'DRAG ON THE LEFT TO STEER · PEDALS ON THE RIGHT'
+      : 'W/S THROTTLE AND BRAKE · A/D STEER · C CAMERA · R RESET · ESC PAUSE · GAMEPADS WORK TOO';
+    this.root.appendChild(help);
   }
 
   private renderPause(): void {
     const panel = document.createElement('div');
     panel.className = 'menu-panel';
-    panel.innerHTML = '<h2>PAUSED</h2>';
+    panel.innerHTML = '<h2><span></span>PAUSED</h2>';
     const actions = document.createElement('div');
     actions.className = 'menu-actions menu-actions-col';
     this.button(actions, 'RESUME', () => this.cb.onResume(), 'menu-btn menu-btn-primary', true);
@@ -169,7 +181,7 @@ export class Menu {
   private renderSettings(): void {
     const panel = document.createElement('div');
     panel.className = 'menu-panel';
-    panel.innerHTML = '<h2>SETTINGS</h2>';
+    panel.innerHTML = '<h2><span></span>SETTINGS</h2>';
 
     const apply = async (next: Settings, changed: keyof Settings) => {
       const ok = await this.cb.onSettings(next, changed);
@@ -312,7 +324,7 @@ export class Menu {
     // Classified times include any track-limits penalties.
     const classified = (r: Standing) => (r.finishTime === null ? null : r.finishTime + r.penalty);
     const winnerTime = this.results[0] ? classified(this.results[0]) : null;
-    panel.innerHTML = `<h2>${me === 0 ? 'YOU WIN!' : `YOU FINISHED P${me + 1}`}</h2>`;
+    panel.innerHTML = `<h2><span></span>${me === 0 ? 'YOU WIN!' : `YOU FINISHED P${me + 1}`}</h2><p class="menu-results-sub">CLASSIFICATION · ${this.circuit.name.toUpperCase()}</p>`;
     const table = document.createElement('table');
     table.className = 'menu-table';
     table.innerHTML = '<thead><tr><th>POS</th><th>DRIVER</th><th>TEAM</th><th>TIME</th><th>BEST LAP</th></tr></thead>';

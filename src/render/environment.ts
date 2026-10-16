@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { createCloudLayer } from './clouds.ts';
+import { createSkyDome, type PhotoSkyData } from './photoSky.ts';
 import type { QualitySettings } from './quality.ts';
 
 export interface Environment {
@@ -22,6 +23,9 @@ export interface Environment {
 }
 
 const RAIN_HAZE = new THREE.Color(0x868d95);
+/** With a photographed sky, its HDR lights everything: the hemisphere fill only lifts the darkest shadows. */
+const PHOTO_ENVIRONMENT = 0.8;
+const PHOTO_FILL = 0.12;
 const RAIN_FILL = new THREE.Color(0xc4c9cf);
 
 export type TimeOfDay = 'midday' | 'afternoon' | 'sunset';
@@ -82,21 +86,113 @@ function clampSky(sky: Sky): Sky {
   return sky;
 }
 
+/** A photographed sky for the session, and an overcast one to turn to if it rains. */
+export interface PhotoSkies {
+  sky: PhotoSkyData;
+  overcast: PhotoSkyData | null;
+}
+
+/** Haze takes the horizon's hue at this brightness, so distant land fades into the sky rather than glowing. */
+const HAZE_LUMINANCE = 0.5;
+
+function hazeFrom(horizon: THREE.Color): THREE.Color {
+  const l = 0.2126 * horizon.r + 0.7152 * horizon.g + 0.0722 * horizon.b || 1;
+  return horizon.clone().multiplyScalar(HAZE_LUMINANCE / l);
+}
+
+/**
+ * The sky and its light. With photographed skies, the sky is the photograph, the lighting and reflections come from
+ * its HDR, and the sun stands where it stood in the photo; without them (still loading, or offline on a first visit)
+ * a procedural sky with drifting clouds stands in.
+ */
 export function createEnvironment(
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
   q: QualitySettings,
   time: TimeOfDay = 'afternoon',
+  photo: PhotoSkies | null = null,
 ): Environment {
   const light = TIMES_OF_DAY[time];
-  const HAZE = new THREE.Color(light.haze);
-  const FILL_SKY = new THREE.Color(light.fillSky);
-  const sunDirection = new THREE.Vector3().setFromSphericalCoords(
-    1,
-    THREE.MathUtils.degToRad(90 - light.elevation),
-    THREE.MathUtils.degToRad(light.azimuth),
-  );
+  const HAZE = photo ? hazeFrom(photo.sky.horizon) : new THREE.Color(light.haze);
+  const OVERCAST_HAZE = photo?.overcast ? hazeFrom(photo.overcast.horizon) : RAIN_HAZE;
+  const FILL_SKY = photo ? HAZE.clone() : new THREE.Color(light.fillSky);
+  const sunDirection = photo
+    ? photo.sky.sun.clone()
+    : new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - light.elevation), THREE.MathUtils.degToRad(light.azimuth));
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  return photo ? photographed(photo) : procedural();
 
+  function photographed(photo: PhotoSkies): Environment {
+    const dome = createSkyDome(photo.sky, photo.overcast, 1 / light.exposure);
+    scene.add(dome.mesh);
+    const clear = pmrem.fromEquirectangular(photo.sky.radiance);
+    const overcastEnv = photo.overcast ? pmrem.fromEquirectangular(photo.overcast.radiance) : null;
+    pmrem.dispose();
+    scene.environment = clear.texture;
+    scene.environmentIntensity = PHOTO_ENVIRONMENT;
+    scene.fog = new THREE.Fog(HAZE, q.drawDistance * 0.25, q.drawDistance);
+    const { sun, fill, follow } = lights(photo.sky.sunColour, PHOTO_FILL);
+    return {
+      sun,
+      sunDirection,
+      follow,
+      update() {},
+      setWeather(cloud: number, rain: number) {
+        const r = Math.min(1, Math.max(0, cloud));
+        const wet = Math.min(1, Math.max(0, rain));
+        dome.setOvercast(r);
+        // The light is the overcast sky's once it is mostly cloud.
+        scene.environment = r > 0.5 && overcastEnv ? overcastEnv.texture : clear.texture;
+        sun.intensity = light.sunIntensity * (1 - 0.85 * r);
+        fill.intensity = PHOTO_FILL * (1 + 0.5 * r);
+        const fog = scene.fog as THREE.Fog;
+        fog.color.copy(HAZE).lerp(OVERCAST_HAZE, Math.max(r, wet));
+        fog.near = q.drawDistance * 0.25 * (1 - 0.7 * wet);
+        fog.far = q.drawDistance * (1 - 0.15 * r - 0.45 * wet);
+      },
+      exposure: light.exposure,
+      dispose() {
+        clear.dispose();
+        overcastEnv?.dispose();
+      },
+    };
+  }
+
+  /** The sun (casting shadows that follow the player) and a soft fill from the sky and the ground. */
+  function lights(sunColour: THREE.ColorRepresentation, fillIntensity: number) {
+    const sun = new THREE.DirectionalLight(sunColour, light.sunIntensity);
+    sun.position.copy(sunDirection).multiplyScalar(300);
+    sun.castShadow = q.shadows;
+    if (q.shadows) {
+      sun.shadow.mapSize.set(q.shadowMapSize, q.shadowMapSize);
+      const extent = 40;
+      const cam = sun.shadow.camera;
+      cam.left = -extent;
+      cam.right = extent;
+      cam.top = extent;
+      cam.bottom = -extent;
+      cam.near = 1;
+      cam.far = 800;
+      sun.shadow.bias = -0.0004;
+      sun.shadow.normalBias = 0.04;
+    }
+    scene.add(sun);
+    scene.add(sun.target);
+    const fill = new THREE.HemisphereLight(FILL_SKY, light.fillGround, fillIntensity);
+    scene.add(fill);
+    const texel = q.shadows ? 80 / q.shadowMapSize : 1;
+    const follow = (target: THREE.Vector3) => {
+      // Snap to shadow-map texels so shadow edges don't shimmer as the car moves.
+      const x = Math.round(target.x / texel) * texel;
+      const z = Math.round(target.z / texel) * texel;
+      const y = target.y;
+      sun.target.position.set(x, y, z);
+      sun.position.set(x + sunDirection.x * 300, y + sunDirection.y * 300, z + sunDirection.z * 300);
+    };
+    return { sun, fill, follow };
+  }
+
+  function procedural(): Environment {
   // Physically based sky (Preetham model).
   const sky = clampSky(new Sky());
   // Inside the camera's far plane (6000 m) at every corner of the sky box.
@@ -118,7 +214,6 @@ export function createEnvironment(
 
   // Image-based lighting: render the sky once into a prefiltered environment map, so paint and
   // metal reflect a sky that matches the one on screen.
-  const pmrem = new THREE.PMREMGenerator(renderer);
   const envScene = new THREE.Scene();
   const envSky = clampSky(new Sky());
   envSky.scale.setScalar(1000);
@@ -144,41 +239,12 @@ export function createEnvironment(
   pmrem.dispose();
 
   scene.fog = new THREE.Fog(HAZE, q.drawDistance * 0.25, q.drawDistance);
+  const { sun, fill, follow } = lights(light.sun, light.fill);
 
-  const sun = new THREE.DirectionalLight(light.sun, light.sunIntensity);
-  sun.position.copy(sunDirection).multiplyScalar(300);
-  sun.castShadow = q.shadows;
-  if (q.shadows) {
-    sun.shadow.mapSize.set(q.shadowMapSize, q.shadowMapSize);
-    const extent = 40;
-    const cam = sun.shadow.camera;
-    cam.left = -extent;
-    cam.right = extent;
-    cam.top = extent;
-    cam.bottom = -extent;
-    cam.near = 1;
-    cam.far = 800;
-    sun.shadow.bias = -0.0004;
-    sun.shadow.normalBias = 0.04;
-  }
-  scene.add(sun);
-  scene.add(sun.target);
-
-  const fill = new THREE.HemisphereLight(FILL_SKY, light.fillGround, light.fill);
-  scene.add(fill);
-
-  const texel = q.shadows ? 80 / q.shadowMapSize : 1;
   return {
     sun,
     sunDirection,
-    follow(target: THREE.Vector3) {
-      // Snap to shadow-map texels so shadow edges don't shimmer as the car moves.
-      const x = Math.round(target.x / texel) * texel;
-      const z = Math.round(target.z / texel) * texel;
-      const y = target.y;
-      sun.target.position.set(x, y, z);
-      sun.position.set(x + sunDirection.x * 300, y + sunDirection.y * 300, z + sunDirection.z * 300);
-    },
+    follow,
     update(dt: number) {
       clouds.update(dt);
     },
@@ -206,4 +272,5 @@ export function createEnvironment(
       envTarget.dispose();
     },
   };
+  }
 }

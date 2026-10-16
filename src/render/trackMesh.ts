@@ -5,6 +5,7 @@ import { seededRandom } from '../math.ts';
 import type { Track } from '../track/Track.ts';
 import type { QualitySettings } from './quality.ts';
 import { asphaltTextures, barrierTexture, chequerTexture, kerbTexture } from './textures.ts';
+import { photoTexture } from './photoTextures.ts';
 import { addRoadReflection } from './roadReflection.ts';
 import { markWettable } from './wet.ts';
 
@@ -183,12 +184,18 @@ export function buildTrackMeshes(track: Track, q: QualitySettings, line?: Racing
   const hw = track.halfWidth;
 
   // Asphalt.
-  const asphalt = asphaltTextures(q.textureSize, q.anisotropy);
+  // Photographed race-track asphalt, about 2.9 m a tile; the procedural texture stands in while it loads.
+  const generated = asphaltTextures(q.textureSize, q.anisotropy);
+  const asphalt = {
+    map: photoTexture(q, 'asphalt_color', generated.map, true, [5, 5]),
+    normalMap: photoTexture(q, 'asphalt_normal', generated.normalMap, false, [5, 5]),
+    roughnessMap: photoTexture(q, 'asphalt_rough', generated.roughnessMap!, false, [5, 5]),
+  };
   const asphaltMat = new THREE.MeshStandardMaterial({
     map: asphalt.map,
     roughnessMap: asphalt.roughnessMap,
     normalMap: asphalt.normalMap,
-    normalScale: new THREE.Vector2(0.4, 0.4),
+    normalScale: new THREE.Vector2(0.7, 0.7),
     // Polished by tyres: a sheen toward the sun, not a matte grey.
     roughness: 0.82,
     metalness: 0,
@@ -323,7 +330,7 @@ export function buildTrackMeshes(track: Track, q: QualitySettings, line?: Racing
 function pitLane(
   track: Track,
   q: QualitySettings,
-  asphalt: ReturnType<typeof asphaltTextures>,
+  asphalt: { map: THREE.Texture; normalMap: THREE.Texture; roughnessMap: THREE.Texture },
   lineMat: THREE.Material,
   wallMat: THREE.Material,
   capMat: THREE.Material,

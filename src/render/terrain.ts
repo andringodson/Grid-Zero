@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { seededRandom } from '../math.ts';
 import type { Track } from '../track/Track.ts';
 import type { QualitySettings } from './quality.ts';
+import { photoTexture } from './photoTextures.ts';
 import { grassTextures } from './textures.ts';
 import { markWettable } from './wet.ts';
 
@@ -400,18 +401,20 @@ export class Terrain {
     geo.setAttribute('farness', new THREE.BufferAttribute(farness, 1));
     geo.setIndex(indices);
     geo.computeVertexNormals();
-    const grass = grassTextures(q.textureSize, q.anisotropy);
-    const meadow = grassTextures(q.textureSize, q.anisotropy, false).map;
+    // Photographed lawn and meadow, a tile every 3.3 m (12 per 40 m texture unit); the generated grass stands in while
+    // they load.
+    const generated = grassTextures(q.textureSize, q.anisotropy);
     const material = new THREE.MeshStandardMaterial({
-      map: grass.map,
-      normalMap: grass.normalMap,
-      normalScale: new THREE.Vector2(0.5, 0.5),
+      map: photoTexture(q, 'grass_color', generated.map, true, [12, 12]),
+      normalMap: photoTexture(q, 'grass_normal', generated.normalMap, false, [12, 12]),
+      normalScale: new THREE.Vector2(0.8, 0.8),
       roughness: 0.95,
       metalness: 0,
       vertexColors: true,
     });
-    // Mown stripes belong beside the circuit; the open countryside blends to unmown meadow, sampled at a different
-    // scale so the two textures never line up into an obvious repeat.
+    const meadow = photoTexture(q, 'meadow_color', grassTextures(q.textureSize, q.anisotropy, false).map, true, [12, 12]);
+    // Beside the circuit the grass is mown in 10 m stripes; the open countryside blends to unmown meadow. Each is also
+    // sampled at a much larger scale and blended in with distance, so the photo's repeat doesn't show across a field.
     material.onBeforeCompile = (shader) => {
       shader.uniforms.meadowMap = { value: meadow };
       shader.vertexShader = shader.vertexShader
@@ -425,8 +428,12 @@ export class Terrain {
           uniform sampler2D meadowMap;
           varying float vFarness;`)
         .replace('#include <map_fragment>', `
-          vec4 mown = texture2D(map, vMapUv);
-          vec4 wild = texture2D(meadowMap, vMapUv * 0.61 + vec2(0.37, 0.11));
+          float far = smoothstep(25.0, 160.0, length(vViewPosition));
+          vec4 mown = mix(texture2D(map, vMapUv), texture2D(map, vMapUv * 0.13 + vec2(0.21, 0.67)), far * 0.6);
+          vec4 wild = mix(texture2D(meadowMap, vMapUv * 0.61 + vec2(0.37, 0.11)), texture2D(meadowMap, vMapUv * 0.09), far * 0.6);
+          // vMapUv runs 12 per 40 m (3.3 m a unit), so 10 m stripes repeat every 6 units.
+          float stripe = step(0.5, fract(vMapUv.x / 6.0));
+          mown.rgb *= mix(1.0, 0.82, stripe * (1.0 - vFarness));
           diffuseColor *= mix(mown, wild, smoothstep(0.15, 0.85, vFarness));`);
     };
     markWettable(0.1, material);

@@ -1,14 +1,47 @@
+/* Titillium Web (SIL Open Font License, public/fonts/OFL.txt), bundled so it works offline. */
+@font-face {
+  font-family: 'Titillium Web';
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/titillium-web-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Titillium Web';
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/titillium-web-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Titillium Web';
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/titillium-web-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Titillium Web';
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+  src: url('/fonts/titillium-web-700-italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Titillium Web';
+  font-weight: 900;
+  font-display: swap;
+  src: url('/fonts/titillium-web-900.woff2') format('woff2');
+}
+
 :root {
   --bg: #0b0d10;
   --fg: #f2f4f7;
   --muted: #9aa3ad;
-  --accent: #ff2d3d;
+  --accent: #e10600;
   --panel: rgba(10, 12, 16, 0.72);
   --line: rgba(255, 255, 255, 0.14);
   --good: #3ddc84;
   --best: #b46cff;
   --bad: #ffcc33;
-  --font: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --font: 'Titillium Web', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
   --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, monospace;
 }
 
@@ -50,4 +83,66 @@ body {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/* Loading screen, in the style of a broadcast holding card, until the photographed skies have arrived. */
+.loading {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: #0a0b0d;
+  color: #fff;
+  font-family: 'Titillium Web', 'Arial Narrow', Arial, sans-serif;
+  transition: opacity 400ms ease;
+}
+.loading.done {
+  opacity: 0;
+  pointer-events: none;
+}
+.loading-mark {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-style: italic;
+}
+.loading-mark b {
+  color: #e10600;
+  font-weight: 900;
+}
+.loading-bar {
+  width: 8px;
+  height: 46px;
+  background: #e10600;
+  transform: skewX(-14deg);
+}
+.loading-line {
+  width: min(320px, 70vw);
+  height: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.loading-line span {
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: #e10600;
+  animation: loading-sweep 1.1s ease-in-out infinite;
+}
+.loading-text {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  color: rgba(255, 255, 255, 0.6);
+}
+@keyframes loading-sweep {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(260%); }
 }
